@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-market",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DSH 插件市场：在设置 → 插件中搜索 GitHub topic:dsh-plugin 的社区插件并一键安装（Zeabur 适配）",
   "type": "module",
   "main": "lib/index.js",
