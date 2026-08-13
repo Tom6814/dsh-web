@@ -1,0 +1,26 @@
+# Zeabur 适配层：固定「网页内目录浏览」交互（browse）+ 插件市场
+#
+# ── 1. 工作区适配 ─────────────────────────────────────────────────────────
+# 原理（来自 dsh-web-app bundle 注释 "Mount -browse directly in an overlay"）：
+#   auto 选择器只在「本地回环绑定 + 图形会话」时才用 native（系统文件管理器），
+#   云端容器应固定 browse。做法：
+#   1) 禁用 auto 行（它会在启动时动态二选一）
+#   2) 插入 browse 后端（网页内列目录、新建目录）+ 对应的浏览器端 surface，
+#      占住 ui-workspace 的目录流插槽
+- id: directory-picker
+  disabled: true
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: ui-directory-picker-browse
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+
+# ── 2. 插件市场 ───────────────────────────────────────────────────────────
+# 在「设置 → 插件」中增加「插件市场」tab：
+#   - host 端（dsh-plugin-market）：/api/plugin-market/search（代理 GitHub topic:dsh-plugin 搜索）
+#     与 /api/plugin-market/install（执行 dsh plugin add）
+#   - client 端：注册 settings.plugins.tab 插槽，展示插件卡片并支持一键安装
+# 该插件由 Dockerfile / start.sh 安装进 web profile 的 node_modules（包名 dsh-plugin-market）。
+- insert:
+    - id: plugin-market
+      name: 'dsh-plugin-market'
