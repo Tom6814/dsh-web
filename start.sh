@@ -35,9 +35,11 @@ if [ "$DSH_PROFILE" = "web" ]; then
   fi
 
   # ── 2. 组装 --trusted-host：Zeabur 域名 + 用户自定义 ──
+  #        从 URL 提取时只取 hostname（去掉端口）：port-less 条目在信任围栏中
+  #        匹配该主机名的任意端口，避免 :443 等显式端口与浏览器 Host 头不一致导致 403。
   TRUSTED_FLAGS=""
   if [ -n "$ZEABUR_WEB_URL" ]; then
-    H=$(printf '%s' "$ZEABUR_WEB_URL" | sed -E 's|^[a-zA-Z]+://([^/]+).*|\1|')
+    H=$(printf '%s' "$ZEABUR_WEB_URL" | sed -E 's|^[a-zA-Z]+://([^:/]+).*|\1|')
     TRUSTED_FLAGS="--trusted-host $H"
     echo "    信任主机(自动): $H"
   fi
