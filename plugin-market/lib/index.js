@@ -2,6 +2,7 @@
 // 提供 HTTP API：
 //   GET  /api/plugin-market/search?q=<kw>   代理 GitHub API 搜索 topic:dsh-plugin 的仓库
 //   POST /api/plugin-market/install {spec}  执行 `dsh plugin --profile <p> add <spec>` 安装
+//   POST /api/plugin-market/restart         优雅重启服务（插件安装后生效；容器自动拉起）
 // 并通过 tapIndex 注入脚本隐藏官方「打开配置文件」按钮（容器环境没有本地编辑器）。
 // 挂载方式：在 cordis patch 中 insert 一行，name 指向本文件。
 import { execFile } from 'node:child_process';
@@ -95,6 +96,23 @@ export function apply(ctx) {
 			} catch (error) {
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
 			}
+		}
+	});
+
+	// ── 重启服务：插件安装后一键生效（SIGTERM 优雅退出 → 容器自动重启）──
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/plugin-market/restart',
+		handler: async (req, res) => {
+			if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
+			sendJson(res, 200, { ok: true, note: '正在重启服务…' });
+			setTimeout(() => {
+				try {
+					process.kill(process.pid, 'SIGTERM');
+				} catch {
+					process.exit(0);
+				}
+			}, 600);
 		}
 	});
 

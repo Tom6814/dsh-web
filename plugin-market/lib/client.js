@@ -25,6 +25,10 @@ window.__ModuleLoader__.load({
 			install: '安装',
 			installing: '安装中…',
 			installed: '安装成功，重启服务后生效。',
+			restart: '重启服务',
+			restarting: '正在重启…',
+			restartFailed: '重启失败：',
+			restartHint: '重启后插件即可使用；页面断开属正常现象，稍等片刻刷新即可。',
 			installFailed: '安装失败：',
 			browseAll: '在 GitHub 浏览全部插件',
 			poweredBy: '数据来源：GitHub topic:dsh-plugin（官方推荐插件话题）'
@@ -40,6 +44,10 @@ window.__ModuleLoader__.load({
 			install: 'Install',
 			installing: 'Installing…',
 			installed: 'Installed. Restart the service to activate.',
+			restart: 'Restart service',
+			restarting: 'Restarting…',
+			restartFailed: 'Restart failed: ',
+			restartHint: 'The plugin activates after restart. The page will disconnect briefly — wait a moment and refresh.',
 			installFailed: 'Install failed: ',
 			browseAll: 'Browse all on GitHub',
 			poweredBy: 'Source: GitHub topic:dsh-plugin (official plugin topic)'
@@ -70,6 +78,8 @@ window.__ModuleLoader__.load({
 			const [state, setState] = useState({ status: 'idle', items: [], error: null });
 			const [installing, setInstalling] = useState(null);
 			const [result, setResult] = useState(null);
+			const [restarting, setRestarting] = useState(false);
+			const [restartError, setRestartError] = useState(null);
 
 			const search = useCallback((kw) => {
 				setState({ status: 'loading', items: [], error: null });
@@ -87,6 +97,7 @@ window.__ModuleLoader__.load({
 			const install = (spec) => {
 				setInstalling(spec);
 				setResult(null);
+				setRestartError(null);
 				fetch('/api/plugin-market/install', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -96,6 +107,19 @@ window.__ModuleLoader__.load({
 					.then((data) => setResult(data))
 					.catch((e) => setResult({ ok: false, error: String(e) }))
 					.finally(() => setInstalling(null));
+			};
+
+			/** 重启服务：dsh 进程优雅退出，容器自动重启后新插件生效。 */
+			const restart = () => {
+				setRestarting(true);
+				setRestartError(null);
+				fetch('/api/plugin-market/restart', { method: 'POST' })
+					.then((r) => r.json())
+					.then((data) => {
+						if (!data.ok) { setRestartError(data.error || String(data)); setRestarting(false); }
+						// 成功时服务即将退出，页面会断开；无需再做任何事
+					})
+					.catch(() => { /* 连接断开即重启已触发，属预期 */ });
 			};
 
 			const submit = () => { setResult(null); search(query); };
@@ -118,7 +142,19 @@ window.__ModuleLoader__.load({
 						onClick: submit
 					}, t('search'))
 				]),
-				result && result.ok ? react.createElement('p', { key: 'ok', style: S.ok }, t('installed')) : null,
+				result && result.ok ? react.createElement('div', { key: 'ok', style: { display: 'flex', flexDirection: 'column', gap: 6 } }, [
+					react.createElement('p', { key: 'msg', style: S.ok }, t('installed')),
+					react.createElement('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
+						react.createElement('button', {
+							key: 'btn',
+							style: Object.assign({}, S.button, restarting ? S.buttonDisabled : {}),
+							disabled: restarting,
+							onClick: restart
+						}, restarting ? t('restarting') : t('restart')),
+						react.createElement('span', { key: 'hint', style: S.note }, t('restartHint'))
+					]),
+					restartError !== null ? react.createElement('p', { key: 'rerr', style: S.err }, t('restartFailed') + restartError) : null
+				]) : null,
 				result && !result.ok ? react.createElement('p', { key: 'err', style: S.err }, t('installFailed') + (result.error || '') + (result.output ? ' — ' + result.output.slice(0, 400) : '')) : null,
 				state.status === 'loading' ? react.createElement('p', { key: 'st', style: S.status }, t('loading')) : null,
 				state.status === 'error' ? react.createElement('p', { key: 'st', style: S.status }, t('error') + String(state.error)) : null,
