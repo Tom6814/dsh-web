@@ -55,21 +55,23 @@ if [ "$DSH_PROFILE" = "web" ]; then
   # ── 3. 生成 nginx 反代配置（gzip 压缩 + 插件长缓存 + SSE/WS 兼容）──
   #        性能优化：client 插件 bundle 约 3MB 无压缩；gzip 后约 700KB，
   #        /plugins/ 内容带 rev 参数不可变，可浏览器长缓存（二次访问 0 下载）。
+  #        注意：gzip 指令必须放在 server 块内——Debian nginx.conf 的 http 块
+  #        已带一份 gzip 配置，http 层重复声明会触发 [emerg] duplicate 错误。
   cat > /etc/nginx/conf.d/dsh.conf <<'NGINX'
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      "";
 }
 
-# 文本类响应 gzip 压缩（SSE/WS 流不受影响：buffering off 时不压缩）
-gzip on;
-gzip_comp_level 6;
-gzip_min_length 1024;
-gzip_vary on;
-gzip_types text/plain text/css application/json application/javascript text/javascript application/xml image/svg+xml;
-
 server {
     listen 0.0.0.0:__PORT__;
+
+    # 文本类响应 gzip 压缩（server 级覆盖；SSE/WS 流不压缩）
+    gzip on;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_vary on;
+    gzip_types text/plain text/css application/json application/javascript text/javascript application/xml image/svg+xml;
 
     # SSE / WebSocket 下行：流式透传，不缓冲、不压缩
     location ~ ^/api/events\.(mux|host)$ {
