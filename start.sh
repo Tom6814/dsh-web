@@ -55,6 +55,10 @@ if [ "$DSH_PROFILE" = "web" ]; then
   #        /plugins/ 内容带 rev 参数不可变，可浏览器长缓存（二次访问 0 下载）。
   #        注意：gzip 指令必须放在 server 块内——Debian nginx.conf 的 http 块
   #        已带一份 gzip 配置，http 层重复声明会触发 [emerg] duplicate 错误。
+  #        Host/Origin 统一改写为 loopback：dsh 对「非 loopback Host 的明文请求」
+  #        会强制 302 到 https（且不认 X-Forwarded-Proto），公网反代下会无限
+  #        重定向；改回 loopback 后 302 不触发、浏览器信任围栏两关（Host 信任 +
+  #        Origin 同源）也一并满足。这是让 dsh 在纯容器反代下工作的关键。
   cat > /etc/nginx/conf.d/dsh.conf <<'NGINX'
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -75,10 +79,8 @@ server {
     location ~ ^/api/events\.(mux|host)$ {
         proxy_pass http://127.0.0.1:__LISTEN__;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
@@ -89,7 +91,8 @@ server {
     location /plugins/ {
         proxy_pass http://127.0.0.1:__LISTEN__;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
         proxy_hide_header Cache-Control;
         add_header Cache-Control "public, max-age=31536000, immutable" always;
         proxy_read_timeout 60s;
@@ -99,7 +102,8 @@ server {
     location / {
         proxy_pass http://127.0.0.1:__LISTEN__;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
