@@ -58,3 +58,6 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 
 - 镜像基于 Node 22 LTS，内置 nginx 反向代理（`dsh` 出于安全设计不支持 `0.0.0.0` 直绑）。
 - 首次使用：添加工作区 → 网页内目录树选目录 → 开始对话；模型配置在 设置 → Models。
+- **预览面板**：页面右下角「预览」按钮可开关；对话中的 `localhost:端口` 链接和本地
+  HTML 文件会自动在面板内打开（端口反代到容器内 `127.0.0.1:<port>`，支持 WebSocket）。
+  `PREVIEW_ROOT` 环境变量可覆盖文件预览根目录（默认 `/workspace`）。

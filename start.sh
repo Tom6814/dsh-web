@@ -87,6 +87,21 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    # 预览：容器内任意端口反代（/preview/port/<port>/<path>），含 WebSocket（dev server HMR 等）
+    location ~ ^/preview/port/([0-9]+)(/.*)?$ {
+        set $preview_port $1;
+        set $preview_path $2;
+        if ($preview_path = "") { set $preview_path /; }
+        proxy_pass http://127.0.0.1:$preview_port$preview_path$is_args$args;
+        proxy_http_version 1.1;
+        proxy_set_header Host 127.0.0.1:$preview_port;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
     # 插件 bundle：URL 带 rev 参数、内容不可变，浏览器长缓存
     location /plugins/ {
         proxy_pass http://127.0.0.1:__LISTEN__;

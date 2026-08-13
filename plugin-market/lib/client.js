@@ -31,6 +31,16 @@ window.__ModuleLoader__.load({
 			restartHint: '重启后插件即可使用；页面断开属正常现象，稍等片刻刷新即可。',
 			installFailed: '安装失败：',
 			browseAll: '在 GitHub 浏览全部插件',
+			preview: '预览',
+			previewTitle: '预览',
+			previewPlaceholder: '输入路径或 http://localhost:端口/…',
+			previewClose: '关闭',
+			previewBack: '后退',
+			previewForward: '前进',
+			previewRefresh: '刷新',
+			previewExternal: '在新标签页打开',
+			previewGo: '前往',
+			previewHint: '对话中的 localhost 链接与本地文件会在此打开',
 			poweredBy: '数据来源：GitHub topic:dsh-plugin（官方推荐插件话题）'
 		};
 		const en = {
@@ -50,6 +60,16 @@ window.__ModuleLoader__.load({
 			restartHint: 'The plugin activates after restart. The page will disconnect briefly — wait a moment and refresh.',
 			installFailed: 'Install failed: ',
 			browseAll: 'Browse all on GitHub',
+			preview: 'Preview',
+			previewTitle: 'Preview',
+			previewPlaceholder: 'Type a path or http://localhost:port/…',
+			previewClose: 'Close',
+			previewBack: 'Back',
+			previewForward: 'Forward',
+			previewRefresh: 'Refresh',
+			previewExternal: 'Open in new tab',
+			previewGo: 'Go',
+			previewHint: 'localhost links and local files from the chat open here',
 			poweredBy: 'Source: GitHub topic:dsh-plugin (official plugin topic)'
 		};
 
@@ -184,7 +204,124 @@ window.__ModuleLoader__.load({
 			]);
 		}
 
-		/** 注册「插件市场」tab 到设置 → 插件板块。 */
+		/** 把链接解析为预览 URL；非本地链接返回 null（保持默认跳转）。 */
+		function toPreviewUrl(href) {
+			const h = String(href || '').trim();
+			if (!h || h.startsWith('#') || h.startsWith('javascript:') || h.startsWith('data:') || h.startsWith('mailto:') || h.startsWith('tel:')) return null;
+			if (h.startsWith('/preview/')) return h;
+			// 本地端口服务：http://localhost:PORT/... / http://127.0.0.1:PORT/...
+			let m = h.match(/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\]):(\d{1,5})(\/.*)?$/i);
+			if (m) {
+				const port = Number(m[1]);
+				if (port >= 1 && port <= 65535) return '/preview/port/' + port + (m[2] || '/');
+			}
+			// 外部 http(s) 链接 → 保持默认（新标签页）
+			if (/^https?:\/\//i.test(h)) return null;
+			// 内部绝对路径 → 保持默认
+			if (h.startsWith('/')) return null;
+			// 相对路径（对话里的文件引用）→ 工作区文件预览
+			return '/preview/file/' + h;
+		}
+
+		/**
+		* 预览面板：右下角浮动按钮 + 右侧抽屉（iframe）。
+		* 拦截本地链接（localhost:端口 / 相对文件路径）自动在面板内打开。
+		* 样式使用 dsh 的 --dsw-* design tokens，与项目前端风格一致。
+		* @param t - 词典绑定。
+		* @returns 清理函数。
+		*/
+		function mountPreview(t) {
+			const el = (tag, style, ...children) => {
+				const node = document.createElement(tag);
+				Object.assign(node.style, style);
+				for (const child of children) {
+					if (child == null) continue;
+					node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+				}
+				return node;
+			};
+			const P = {
+				fab: { position: 'fixed', right: 18, bottom: 18, zIndex: 9998, padding: '8px 14px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit', boxShadow: '0 4px 16px rgba(0,0,0,.28)' },
+				panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(56vw, 880px)', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', boxShadow: '-10px 0 28px rgba(0,0,0,.22)', color: 'var(--dsw-alias-label-primary)' },
+				head: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
+				ctrl: { flex: 'none', height: 28, minWidth: 28, padding: '0 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit' },
+				addr: { flex: 1, height: 28, minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 8px', fontSize: 12, font: 'inherit' },
+				iframe: { flex: 1, width: '100%', border: 0, background: '#fff' },
+				empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px' }
+			};
+
+			const panel = el('div', P.panel);
+			const addr = el('input', P.addr, '');
+			addr.placeholder = t('previewPlaceholder');
+			const frame = el('iframe', P.iframe);
+			frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
+			const empty = el('div', P.empty, t('previewHint'));
+			panel.appendChild(empty);
+			panel.appendChild(frame);
+
+			const mkBtn = (label, title, onClick) => {
+				const b = el('button', P.ctrl, label);
+				b.title = title;
+				b.onclick = onClick;
+				return b;
+			};
+			const head = el('div', P.head);
+			head.appendChild(mkBtn('←', t('previewBack'), () => { try { frame.contentWindow.history.back(); } catch {} }));
+			head.appendChild(mkBtn('→', t('previewForward'), () => { try { frame.contentWindow.history.forward(); } catch {} }));
+			head.appendChild(mkBtn('↻', t('previewRefresh'), () => { frame.src = frame.src; }));
+			head.appendChild(addr);
+			head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
+				if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
+			}));
+			head.appendChild(mkBtn('✕', t('previewClose'), () => { panel.style.display = 'none'; }));
+			panel.insertBefore(head, panel.firstChild);
+
+			const fab = el('button', P.fab, '◧ ' + t('preview'));
+			fab.title = t('previewTitle');
+			fab.onclick = () => {
+				if (panel.style.display === 'flex') {
+					panel.style.display = 'none';
+				} else {
+					panel.style.display = 'flex';
+					if (!addr.value) { frame.style.display = 'none'; empty.style.display = 'flex'; }
+				}
+			};
+			const openPanel = (url) => {
+				panel.style.display = 'flex';
+				frame.style.display = 'block';
+				empty.style.display = 'none';
+				frame.src = url;
+				addr.value = url;
+			};
+			addr.addEventListener('keydown', (e) => {
+				if (e.key !== 'Enter') return;
+				const v = addr.value.trim();
+				openPanel(toPreviewUrl(v) || v);
+			});
+
+			// 链接重写（捕获阶段）：对话里的 localhost / 相对文件链接 → 面板内打开
+			const onClick = (e) => {
+				const a = e.target && e.target.closest ? e.target.closest('a') : null;
+				if (!a) return;
+				const href = a.getAttribute('href') || '';
+				const target = toPreviewUrl(href);
+				if (!target) return;
+				e.preventDefault();
+				e.stopPropagation();
+				openPanel(target);
+			};
+			document.addEventListener('click', onClick, true);
+
+			document.body.appendChild(fab);
+			document.body.appendChild(panel);
+			return () => {
+				document.removeEventListener('click', onClick, true);
+				fab.remove();
+				panel.remove();
+			};
+		}
+
+		/** 注册「插件市场」tab 到设置 → 插件板块，并挂载预览面板。 */
 		function apply(ctx) {
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'plugin-market: dictionaries');
 			const t = ctx.locale.bind(NS);
@@ -195,6 +332,8 @@ window.__ModuleLoader__.load({
 				label: () => t('tab'),
 				locale: NS
 			}, MarketTab));
+			// 预览面板：全局挂载一次
+			ctx.effect(() => mountPreview(t), 'plugin-market: preview panel');
 		}
 
 		exports.NS = NS;
