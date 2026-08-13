@@ -141,6 +141,62 @@ export function apply(ctx) {
 		return target;
 	}
 
+	/** 简易 Markdown → HTML（标题/粗斜体/行内代码/代码块/列表/链接/段落）。 */
+	function renderMarkdown(src) {
+		const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		const inline = (s) => esc(s)
+			.replace(/`([^`]+)`/g, '<code>$1</code>')
+			.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+			.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+			.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+		const blocks = [];
+		let body = String(src).replace(/```[^\n]*\n?([\s\S]*?)```/g, (m, code) => {
+			blocks.push('<pre><code>' + esc(code.replace(/\n$/, '')) + '</code></pre>');
+			return '\u0000' + (blocks.length - 1) + '\u0000';
+		});
+		const lines = body.split('\n');
+		let out = '';
+		let list = false;
+		const closeList = () => { if (list) { out += '</ul>'; list = false; } };
+		for (const line of lines) {
+			let m = line.match(/^(#{1,6})\s+(.*)/);
+			if (m) {
+				closeList();
+				const n = m[1].length;
+				out += n <= 2 ? `<h${n}>${inline(m[2])}</h${n}>` : `<h${n}>${inline(m[2])}</h${n}>`;
+				continue;
+			}
+			if (line.trim() === '') { closeList(); continue; }
+			m = line.match(/^[-*+]\s+(.*)/);
+			if (m) {
+				if (!list) { list = true; out += '<ul>'; }
+				out += `<li>${inline(m[1])}</li>`;
+				continue;
+			}
+			closeList();
+			out += `<p>${inline(line)}</p>`;
+		}
+		closeList();
+		body = out.replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[Number(i)] ?? '');
+		return body;
+	}
+
+	/** Markdown 预览页外壳：白底、阅读宽度、代码样式。 */
+	const MD_SHELL = (body) => `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+		:root { color-scheme: light; }
+		body { margin: 0; padding: 32px 40px; font: 15px/1.8 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2328; max-width: 860px; }
+		h1, h2, h3, h4, h5, h6 { line-height: 1.4; margin: 1.2em 0 .5em; font-weight: 600; }
+		h1 { font-size: 1.7em; } h2 { font-size: 1.4em; } h3 { font-size: 1.2em; }
+		p { margin: .6em 0; }
+		ul { padding-left: 1.6em; margin: .6em 0; }
+		li { margin: .25em 0; }
+		code { font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #f3f4f6; border-radius: 6px; padding: 2px 6px; }
+		pre { background: #0d1117; color: #e6edf3; border-radius: 10px; padding: 16px 18px; overflow-x: auto; }
+		pre code { background: none; color: inherit; padding: 0; border-radius: 0; }
+		a { color: #4d6bfe; text-decoration: none; } a:hover { text-decoration: underline; }
+		hr { border: none; border-top: 1px solid #e5e7eb; margin: 1.5em 0; }
+	</style></head><body>${body}</body></html>`;
+
 	ctx.webServer.register({
 		kind: 'prefix',
 		path: '/preview/file',
@@ -151,7 +207,17 @@ export function apply(ctx) {
 				const target = previewPath(rel);
 				if (target === null) return sendJson(res, 403, { ok: false, error: '路径越界' });
 				const body = await readFile(target);
-				const type = PREVIEW_MIME[extname(target).toLowerCase()] ?? 'application/octet-stream';
+				const ext = extname(target).toLowerCase();
+				if (ext === '.md') {
+					const html = Buffer.from(MD_SHELL(renderMarkdown(body.toString('utf8'))), 'utf8');
+					res.writeHead(200, {
+						'Content-Type': 'text/html; charset=utf-8',
+						'Content-Length': html.length,
+						'X-Content-Type-Options': 'nosniff'
+					});
+					return res.end(html);
+				}
+				const type = PREVIEW_MIME[ext] ?? 'application/octet-stream';
 				res.writeHead(200, {
 					'Content-Type': type,
 					'Content-Length': body.length,

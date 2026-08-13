@@ -237,22 +237,29 @@ window.__ModuleLoader__.load({
 			const mount = () => {
 				const el = (tag, style, ...children) => {
 					const node = document.createElement(tag);
-					Object.assign(node.style, style);
+					for (const [key, value] of Object.entries(style)) {
+						// CSS 属性数字值必须带单位（如 borderRadius: 20 → '20px'）；
+						// 只有 zIndex 等极少数属性是纯数字语义。
+						node.style[key] = typeof value === 'number' && key !== 'zIndex' ? value + 'px' : value;
+					}
 					for (const child of children) {
 						if (child == null) continue;
 						node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
 					}
 					return node;
 				};
-				// DeepSeek 输入框同款质感：圆角胶囊、灰调层叠、柔和边框
+				// DeepSeek 同款质感：圆角浮层、胶囊控件、灰调层叠、柔和阴影
 				const P = {
-					fab: { position: 'fixed', right: 20, bottom: 20, zIndex: 9998, height: 40, padding: '0 18px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit', boxShadow: '0 2px 12px rgba(0,0,0,.14)', transition: 'background .15s ease, transform .15s ease' },
-					panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: PANEL_W + 'px', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', color: 'var(--dsw-alias-label-primary)', boxShadow: '-12px 0 32px rgba(0,0,0,.12)' },
-					head: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
-					ctrl: { flex: 'none', height: 30, minWidth: 30, padding: '0 8px', borderRadius: 999, border: 'none', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 14, font: 'inherit', transition: 'background .15s ease' },
-					addr: { flex: 1, height: 34, minWidth: 0, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 16px', fontSize: 13, font: 'inherit', outline: 'none' },
-					iframe: { flex: 1, width: '100%', border: 0, background: '#fff' },
-					overlay: { position: 'absolute', top: '58px', left: 0, right: 0, bottom: 0, display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px', background: 'var(--dsw-alias-bg-layer-1)' },
+					fab: { position: 'fixed', right: 20, bottom: 20, zIndex: 9998, height: 40, padding: '0 18px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit', boxShadow: '0 2px 12px rgba(0,0,0,.14)', transition: 'background .15s ease' },
+					// 圆角浮层：四周留边，20px 大圆角——不再是一块直角挡板
+					panel: { position: 'fixed', top: 14, right: 14, bottom: 14, width: PANEL_W + 'px', background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 20, zIndex: 9999, display: 'none', flexDirection: 'column', color: 'var(--dsw-alias-label-primary)', boxShadow: '0 20px 56px rgba(0,0,0,.20)', overflow: 'hidden' },
+					head: { display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px 10px', background: 'var(--dsw-alias-bg-layer-1)' },
+					ctrl: { flex: 'none', height: 32, minWidth: 32, padding: '0 10px', borderRadius: 999, border: 'none', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 14, font: 'inherit', transition: 'background .15s ease' },
+					addr: { flex: 1, height: 36, minWidth: 0, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 18px', fontSize: 13, font: 'inherit', outline: 'none' },
+					// iframe 装入圆角容器：与面板同款圆润
+					frameWrap: { flex: 1, margin: '2px 14px 14px', borderRadius: 14, overflow: 'hidden', background: '#fff', position: 'relative', border: '1px solid var(--dsw-alias-border-l2)' },
+					iframe: { width: '100%', height: '100%', border: 0, background: '#fff', display: 'block' },
+					overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px', background: 'var(--dsw-alias-bg-layer-1)', borderRadius: 14 },
 					overlayTitle: { color: 'var(--dsw-alias-label-secondary)', fontSize: 14, fontWeight: 600 }
 				};
 
@@ -260,11 +267,13 @@ window.__ModuleLoader__.load({
 				const addr = el('input', P.addr, '');
 				addr.placeholder = t('previewPlaceholder');
 				addr.spellcheck = false;
+				const frameWrap = el('div', P.frameWrap);
 				const frame = el('iframe', P.iframe);
 				frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
 				const overlay = el('div', P.overlay);
-				panel.appendChild(overlay);
-				panel.appendChild(frame);
+				frameWrap.appendChild(overlay);
+				frameWrap.appendChild(frame);
+				panel.appendChild(frameWrap);
 
 				// iframe 加载后：同源可读内容，若是 JSON 错误则显示友好提示覆盖层
 				frame.onload = () => {
