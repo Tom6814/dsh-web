@@ -27,12 +27,14 @@ echo "    profile : $DSH_PROFILE"
 echo "    DSH_HOME: $DSH_HOME"
 
 if [ "$DSH_PROFILE" = "web" ]; then
-  # ── 1. 确保插件市场已安装（挂载新持久化卷后首次启动需要补装）──
+  # ── 1. 确保内置插件已安装（挂载新持久化卷后首次启动需要补装）──
   #        镜像构建时已预装；若卷覆盖了 /data 则在此兜底。
-  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-plugin-market" ]; then
-    echo "    plugin-market: 首次安装…"
-    dsh plugin --profile web add /opt/dsh-zeabur/plugin-market
-  fi
+  for pkg in dsh-plugin-market dsh-tree-picker; do
+    if [ ! -d "$DSH_HOME/profiles/web/node_modules/$pkg" ]; then
+      echo "    $pkg: 首次安装…"
+      dsh plugin --profile web add "/opt/dsh-zeabur/$pkg"
+    fi
+  done
 
   # ── 2. 组装 --trusted-host：Zeabur 域名 + 用户自定义 ──
   #        从 URL 提取时只取 hostname（去掉端口）：port-less 条目在信任围栏中
@@ -50,15 +52,27 @@ if [ "$DSH_PROFILE" = "web" ]; then
     done
   fi
 
-  # ── 3. 生成 nginx 反代配置（兼容 SSE 长连接与 WebSocket）──
+  # ── 3. 生成 nginx 反代配置（gzip 压缩 + 插件长缓存 + SSE/WS 兼容）──
+  #        性能优化：client 插件 bundle 约 3MB 无压缩；gzip 后约 700KB，
+  #        /plugins/ 内容带 rev 参数不可变，可浏览器长缓存（二次访问 0 下载）。
   cat > /etc/nginx/conf.d/dsh.conf <<'NGINX'
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      "";
 }
+
+# 文本类响应 gzip 压缩（SSE/WS 流不受影响：buffering off 时不压缩）
+gzip on;
+gzip_comp_level 6;
+gzip_min_length 1024;
+gzip_vary on;
+gzip_types text/plain text/css application/json application/javascript text/javascript application/xml image/svg+xml;
+
 server {
     listen 0.0.0.0:__PORT__;
-    location / {
+
+    # SSE / WebSocket 下行：流式透传，不缓冲、不压缩
+    location ~ ^/api/events\.(mux|host)$ {
         proxy_pass http://127.0.0.1:__LISTEN__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -68,6 +82,27 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
         proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    # 插件 bundle：URL 带 rev 参数、内容不可变，浏览器长缓存
+    location /plugins/ {
+        proxy_pass http://127.0.0.1:__LISTEN__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        proxy_read_timeout 60s;
+    }
+
+    # 其余（index.html / api JSON 等）：gzip 压缩
+    location / {
+        proxy_pass http://127.0.0.1:__LISTEN__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }

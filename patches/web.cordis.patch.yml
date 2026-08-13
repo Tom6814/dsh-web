@@ -15,7 +15,17 @@
     - id: ui-directory-picker-browse
       name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
-# ── 2. 插件市场 ───────────────────────────────────────────────────────────
+# ── 2. 工作区目录选择界面：单列树形（替代官方双栏浏览）──────────────────
+# 官方 browse surface 是「面包屑 + 双栏」风格（类似 macOS 文件管理器），
+# 这里禁用它的前端，改用 dsh-tree-picker 的单列树形界面（点击展开/折叠）。
+# host 侧 browse 后端保留：它是 listDirectory/createDirectory 能力的提供者。
+- id: ui-directory-picker-browse
+  disabled: true
+- insert:
+    - id: ui-tree-picker
+      name: 'dsh-tree-picker'
+
+# ── 3. 插件市场 ───────────────────────────────────────────────────────────
 # 在「设置 → 插件」中增加「插件市场」tab：
 #   - host 端（dsh-plugin-market）：/api/plugin-market/search（代理 GitHub topic:dsh-plugin 搜索）
 #     与 /api/plugin-market/install（执行 dsh plugin add）

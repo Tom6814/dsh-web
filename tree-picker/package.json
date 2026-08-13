@@ -1,0 +1,23 @@
+{
+  "name": "dsh-tree-picker",
+  "version": "0.1.0",
+  "description": "单列树形工作区目录选择器：同一列点击展开/折叠，替代官方双栏浏览界面",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "workspaces",
+        "locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

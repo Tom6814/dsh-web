@@ -51,7 +51,8 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ├── Dockerfile                  # 镜像构建（Node LTS + nginx 反代 + dsh）
 ├── start.sh                    # 启动脚本
 ├── patches/                    # 部署适配配置（网页目录浏览 + 插件市场）
-└── plugin-market/              # 插件市场插件
+├── plugin-market/              # 插件市场插件
+└── tree-picker/                # 单列树形工作区目录选择器
 ```
 
 ## 说明
