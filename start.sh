@@ -100,6 +100,12 @@ server {
         proxy_buffering off;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+        # 端口服务未启动时给出友好 JSON 提示（避免默认 502 Bad Gateway 页）
+        error_page 502 503 504 @preview_down;
+    }
+    location @preview_down {
+        default_type application/json;
+        return 200 '{"ok":false,"error":"端口服务未启动","hint":"请先在对话中让 AI 启动该端口的服务，再刷新预览。"}';
     }
 
     # 插件 bundle：URL 带 rev 参数、内容不可变，浏览器长缓存

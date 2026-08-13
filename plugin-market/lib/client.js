@@ -41,6 +41,7 @@ window.__ModuleLoader__.load({
 			previewExternal: '在新标签页打开',
 			previewGo: '前往',
 			previewHint: '对话中的 localhost 链接与本地文件会在此打开',
+			previewUnavailable: '无法预览',
 			poweredBy: '数据来源：GitHub topic:dsh-plugin（官方推荐插件话题）'
 		};
 		const en = {
@@ -70,6 +71,7 @@ window.__ModuleLoader__.load({
 			previewExternal: 'Open in new tab',
 			previewGo: 'Go',
 			previewHint: 'localhost links and local files from the chat open here',
+			previewUnavailable: 'Preview unavailable',
 			poweredBy: 'Source: GitHub topic:dsh-plugin (official plugin topic)'
 		};
 
@@ -224,13 +226,14 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		* 预览面板：右下角浮动按钮 + 右侧抽屉（iframe）。
-		* 拦截本地链接（localhost:端口 / 相对文件路径）自动在面板内打开。
-		* 样式使用 dsh 的 --dsw-* design tokens，与项目前端风格一致。
+		* 预览面板：DeepSeek 风格的右侧抽屉（圆润、灰调，不遮挡对话——打开时
+		* 把页面 #root 往左挤，像 TRAE Work 的分栏预览）。拦截本地链接
+		* （localhost:端口 / 相对文件路径）自动在面板内打开。
 		* @param t - 词典绑定。
 		* @returns 清理函数。
 		*/
 		function mountPreview(t) {
+			const PANEL_W = 520;
 			const mount = () => {
 				const el = (tag, style, ...children) => {
 					const node = document.createElement(tag);
@@ -241,28 +244,51 @@ window.__ModuleLoader__.load({
 					}
 					return node;
 				};
+				// DeepSeek 输入框同款质感：圆角胶囊、灰调层叠、柔和边框
 				const P = {
-					fab: { position: 'fixed', right: 18, bottom: 18, zIndex: 9998, padding: '10px 16px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, font: 'inherit', boxShadow: '0 4px 16px rgba(0,0,0,.32)' },
-					panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(56vw, 880px)', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', boxShadow: '-10px 0 28px rgba(0,0,0,.22)', color: 'var(--dsw-alias-label-primary)' },
-					head: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
-					ctrl: { flex: 'none', height: 28, minWidth: 28, padding: '0 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit' },
-					addr: { flex: 1, height: 28, minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 8px', fontSize: 12, font: 'inherit' },
+					fab: { position: 'fixed', right: 20, bottom: 20, zIndex: 9998, height: 40, padding: '0 18px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit', boxShadow: '0 2px 12px rgba(0,0,0,.14)', transition: 'background .15s ease, transform .15s ease' },
+					panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: PANEL_W + 'px', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', color: 'var(--dsw-alias-label-primary)', boxShadow: '-12px 0 32px rgba(0,0,0,.12)' },
+					head: { display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
+					ctrl: { flex: 'none', height: 30, minWidth: 30, padding: '0 8px', borderRadius: 999, border: 'none', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 14, font: 'inherit', transition: 'background .15s ease' },
+					addr: { flex: 1, height: 34, minWidth: 0, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 16px', fontSize: 13, font: 'inherit', outline: 'none' },
 					iframe: { flex: 1, width: '100%', border: 0, background: '#fff' },
-					empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px' }
+					overlay: { position: 'absolute', top: '58px', left: 0, right: 0, bottom: 0, display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px', background: 'var(--dsw-alias-bg-layer-1)' },
+					overlayTitle: { color: 'var(--dsw-alias-label-secondary)', fontSize: 14, fontWeight: 600 }
 				};
 
 				const panel = el('div', P.panel);
 				const addr = el('input', P.addr, '');
 				addr.placeholder = t('previewPlaceholder');
+				addr.spellcheck = false;
 				const frame = el('iframe', P.iframe);
 				frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
-				const empty = el('div', P.empty, t('previewHint'));
-				panel.appendChild(empty);
+				const overlay = el('div', P.overlay);
+				panel.appendChild(overlay);
 				panel.appendChild(frame);
+
+				// iframe 加载后：同源可读内容，若是 JSON 错误则显示友好提示覆盖层
+				frame.onload = () => {
+					try {
+						const doc = frame.contentDocument;
+						const text = doc && doc.body ? doc.body.innerText.trim() : '';
+						const m = text.match(/\"error\"\s*:\s*\"([^\"]+)\"/);
+						if (m) {
+							overlay.style.display = 'flex';
+							overlay.replaceChildren(
+								el('span', P.overlayTitle, t('previewUnavailable')),
+								el('span', null, m[1])
+							);
+						} else {
+							overlay.style.display = 'none';
+						}
+					} catch { /* 跨源时保持 iframe 原样 */ }
+				};
 
 				const mkBtn = (label, title, onClick) => {
 					const b = el('button', P.ctrl, label);
 					b.title = title;
+					b.onmouseenter = () => { b.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
+					b.onmouseleave = () => { b.style.background = 'var(--dsw-alias-bg-layer-3)'; };
 					b.onclick = onClick;
 					return b;
 				};
@@ -274,26 +300,39 @@ window.__ModuleLoader__.load({
 				head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
 					if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
 				}));
-				head.appendChild(mkBtn('✕', t('previewClose'), () => { panel.style.display = 'none'; }));
+				head.appendChild(mkBtn('✕', t('previewClose'), () => { setOpen(false); }));
 				panel.insertBefore(head, panel.firstChild);
 
 				const fab = el('button', P.fab, '◧ ' + t('preview'));
 				fab.title = t('previewTitle');
-				fab.onclick = () => {
-					if (panel.style.display === 'flex') {
-						panel.style.display = 'none';
-					} else {
-						panel.style.display = 'flex';
-						if (!addr.value) { frame.style.display = 'none'; empty.style.display = 'flex'; }
+				fab.onmouseenter = () => { fab.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
+				fab.onmouseleave = () => { fab.style.background = 'var(--dsw-alias-bg-layer-3)'; };
+
+				// 布局：打开时把 #root 往左挤（不遮挡对话），关闭时复位
+				const root = document.getElementById('root');
+				const applyLayout = (open) => {
+					if (!root) return;
+					root.style.transition = 'margin-right .28s cubic-bezier(.4,0,.2,1)';
+					root.style.marginRight = open ? PANEL_W + 'px' : '0px';
+				};
+				const setOpen = (open) => {
+					panel.style.display = open ? 'flex' : 'none';
+					applyLayout(open);
+					if (open && !addr.value) {
+						frame.style.display = 'none';
+						overlay.style.display = 'flex';
+						overlay.replaceChildren(el('span', P.overlayTitle, t('previewTitle')), el('span', null, t('previewHint')));
 					}
 				};
 				const openPanel = (url) => {
 					panel.style.display = 'flex';
 					frame.style.display = 'block';
-					empty.style.display = 'none';
+					overlay.style.display = 'none';
 					frame.src = url;
 					addr.value = url;
+					applyLayout(true);
 				};
+				fab.onclick = () => { setOpen(panel.style.display !== 'flex'); };
 				addr.addEventListener('keydown', (e) => {
 					if (e.key !== 'Enter') return;
 					const v = addr.value.trim();
@@ -319,6 +358,8 @@ window.__ModuleLoader__.load({
 					document.removeEventListener('click', onClick, true);
 					fab.remove();
 					panel.remove();
+					applyLayout(false);
+					if (root) root.style.transition = '';
 				};
 			};
 			// body 可能尚未就绪（部分内嵌浏览器环境下插件激活早于 DOM）；等就绪再挂载
