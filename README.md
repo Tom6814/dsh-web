@@ -58,6 +58,16 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 
 - 镜像基于 Node 22 LTS，内置 nginx 反向代理（`dsh` 出于安全设计不支持 `0.0.0.0` 直绑）。
 - 首次使用：添加工作区 → 网页内目录树选目录 → 开始对话；模型配置在 设置 → Models。
-- **预览面板**：页面右下角「预览」按钮可开关；对话中的 `localhost:端口` 链接和本地
-  HTML 文件会自动在面板内打开（端口反代到容器内 `127.0.0.1:<port>`，支持 WebSocket）。
-  `PREVIEW_ROOT` 环境变量可覆盖文件预览根目录（默认 `/workspace`）。
+- **预览面板**：右上角（Session Log 旁）「预览」胶囊按钮开关；对话中的 `localhost:端口`
+  链接、**文件提及（MD / HTML / 图片 / 代码等）** 会自动在面板内打开（端口反代到容器内
+  `127.0.0.1:<port>`，支持 WebSocket；MD 由 host 渲染为阅读页，代码文件按纯文本显示）。
+  文件提及支持绝对路径（如 `/tmp/xxx.html`，host 会映射到容器工作区或临时目录，越界拒绝）。
+  外部 http(s) 链接保持默认新标签页打开。`PREVIEW_ROOT` 可覆盖文件预览根（默认 `/workspace`），
+  `PREVIEW_EXTRA_ROOTS` 追加额外可读根（逗号分隔；未设置时默认含容器临时目录）。
+- **插件启停**：设置 → 插件 → 「插件列表」展开任意插件卡片，详情里带「启用 / 停用」按钮，
+  通过写入 `$DSH_HOME/cordis.patch.yml` 用户补丁层即时生效（dsh 热更新），重启后保持。
+- **插件安装**：搜索结果的安装按钮支持 `owner/repo` GitHub 简写（自动归一化为
+  `github:owner/repo` 交给 pnpm）；Git 托管的带构建脚本插件需要先在容器
+  `$DSH_HOME/profiles/web/pnpm-workspace.yaml` 配置 `allowBuilds`（安装失败时的提示会说明）。
+- **重启服务**：安装成功后点「重启服务」→ 进程退出 → 容器平台自动拉起新实例，插件生效。
+  请确保已为 `/data` 挂载持久化卷，否则重启会丢失新装的插件与会话数据。

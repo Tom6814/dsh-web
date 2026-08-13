@@ -1,21 +1,39 @@
 // dsh-plugin-market — host half
 // 提供 HTTP API：
-//   GET  /api/plugin-market/search?q=<kw>   代理 GitHub API 搜索 topic:dsh-plugin 的仓库
-//   POST /api/plugin-market/install {spec}  执行 `dsh plugin --profile <p> add <spec>` 安装
-//   POST /api/plugin-market/restart         优雅重启服务（插件安装后生效；容器自动拉起）
-//   GET  /preview/file/<relpath>            预览工作区里的 HTML 等文件
-//   GET  /preview/port/<port>/<path>        HTTP 反代到容器内 127.0.0.1:<port>（WebSocket 走 nginx）
+//   GET  /api/plugin-market/search?q=<kw>    代理 GitHub API 搜索 topic:dsh-plugin 的仓库
+//   POST /api/plugin-market/install {spec}   执行 `dsh plugin --profile <p> add <spec>` 安装
+//   POST /api/plugin-market/restart          优雅重启服务（插件安装后生效；容器自动拉起）
+//   GET  /api/plugin-market/list             当前 loader 插件清单（含启用状态）
+//   POST /api/plugin-market/toggle {entryId} 启用/停用插件：写入 $DSH_HOME/cordis.patch.yml，
+//                                            由 dsh 的 HMR 用户补丁热更新机制即时生效，重启后保持
+//   GET  /preview/file/<relpath>             预览工作区里的 HTML/Markdown 等文件
+//   GET  /preview/port/<port>/<path>         HTTP 反代到容器内 127.0.0.1:<port>（WebSocket 走 nginx）
 // 并通过 tapIndex 注入脚本隐藏官方「打开配置文件」按钮（容器环境没有本地编辑器）。
 // 挂载方式：在 cordis patch 中 insert 一行，name 指向本文件。
 import { execFile } from 'node:child_process';
 import http from 'node:http';
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { extname, resolve, sep } from 'node:path';
+import { dirname, extname, resolve, sep } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
 
 export const name = 'plugin-market-host';
-export const inject = ['webServer'];
+export const inject = ['webServer', 'loader'];
 
 const GH_SEARCH = 'https://api.github.com/search/repositories';
+
+// ── dsh 数据目录解析（与 @deepseek-ai/dsh-home-paths 的 resolveDshHome 一致）──
+// 用户补丁层 $DSH_HOME/cordis.patch.yml 是所有 profile 共享的「机器级偏好」，
+// 优先级高于 bundle 补丁层；dsh 运行时会热监听它（watchUserPatches + HMR）。
+function dshHome() {
+	const env = process.env.DSH_HOME;
+	if (env !== void 0 && String(env).trim().length > 0) {
+		const value = String(env).trim();
+		return resolve(value.startsWith('~/') ? homedir() + value.slice(1) : value);
+	}
+	return resolve(homedir(), '.dsh');
+}
+const HOME_PATCH = process.env.DSH_HOME_PATCH ?? resolve(dshHome(), 'cordis.patch.yml');
 
 /** 读取请求体（限制 1MB）。 */
 function readBody(req) {
@@ -51,6 +69,80 @@ function toItem(repo) {
 	};
 }
 
+/**
+* 归一化 pnpm 安装 spec：
+*   - `owner/repo` GitHub 简写 → `github:owner/repo`（pnpm 不认 npm 的简写语法）
+*   - `@scope/pkg` npm 包名 / git URL / 其它形式原样透传
+*/
+function normalizeSpec(spec) {
+	const s = String(spec ?? '').trim();
+	if (!s) return s;
+	if (/^@[^/]+\/[^/]+$/.test(s)) return s;
+	if (/^[\w.-]+\/[\w.-]+$/.test(s)) return `github:${s}`;
+	return s;
+}
+
+/** YAML 字符串引号（含冒号的 entryId 必须引起来）。 */
+function yamlQuote(value) {
+	return '"' + String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+}
+
+/**
+* 在用户补丁层写入/更新一条 `{ id, disabled }` 覆盖：
+* 逐行定位 `- id: <entryId>` 块并保留同块其它键（name/config 等），
+* 不存在则追加到文件末尾。写临时文件后原子 rename，避免 watcher 读到半截。
+* @param entryId - loader entry id。
+* @param disabled - 目标停用状态。
+*/
+function writeDisabledRow(entryId, disabled) {
+	const bool = disabled ? 'true' : 'false';
+	const idLine = '- id: ' + yamlQuote(entryId);
+	const disabledLine = '  disabled: ' + bool;
+	let text = '';
+	try {
+		text = readFileSync(HOME_PATCH, 'utf8');
+	} catch {
+		/* 文件不存在 → 新建 */
+	}
+	const lines = text.split('\n');
+	let index = -1;
+	for (let i = 0; i < lines.length; i++) {
+		const match = lines[i].match(/^\s*-\s*id\s*:\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([^\s#]+))(\s*(?:#.*)?)$/);
+		if (!match) continue;
+		const id = match[1] !== void 0 ? match[1].replace(/\\(["\\])/g, '$1') : match[2] !== void 0 ? match[2] : match[3];
+		if (id === entryId) {
+			index = i;
+			break;
+		}
+	}
+	if (index >= 0) {
+		let end = index + 1;
+		const kept = [];
+		while (end < lines.length && /^\s+/.test(lines[end]) && !/^\s+-\s/.test(lines[end])) {
+			if (!/^\s*disabled\s*:/.test(lines[end])) kept.push(lines[end]);
+			end++;
+		}
+		lines.splice(index, end - index, idLine, disabledLine, ...kept);
+	} else {
+		while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+		lines.push(idLine, disabledLine);
+	}
+	mkdirSync(dirname(HOME_PATCH), { recursive: true });
+	const tmp = HOME_PATCH + '.tmp';
+	writeFileSync(tmp, lines.join('\n') + '\n', 'utf8');
+	renameSync(tmp, HOME_PATCH);
+}
+
+/** Cordis Fiber 状态 → 可读相位（与官方 inventory 一致）。 */
+const FIBER_PHASE = {
+	0: 'pending',
+	1: 'loading',
+	2: 'active',
+	3: 'failed',
+	4: null,
+	5: 'unloading'
+};
+
 export function apply(ctx) {
 	// ── 搜索：代理 GitHub topic:dsh-plugin ──────────────────────────────────
 	ctx.webServer.register({
@@ -74,7 +166,7 @@ export function apply(ctx) {
 		}
 	});
 
-	// ── 安装：执行 dsh plugin add ──────────────────────────────────────────
+	// ── 安装：执行 dsh plugin add（spec 先归一化）──────────────────────────
 	ctx.webServer.register({
 		kind: 'exact',
 		path: '/api/plugin-market/install',
@@ -82,8 +174,9 @@ export function apply(ctx) {
 			try {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
 				const body = JSON.parse((await readBody(req)) || '{}');
-				const spec = String(body.spec ?? '').trim();
-				if (!spec) return sendJson(res, 400, { ok: false, error: '缺少 spec 参数' });
+				const raw = String(body.spec ?? '').trim();
+				if (!raw) return sendJson(res, 400, { ok: false, error: '缺少 spec 参数' });
+				const spec = normalizeSpec(raw);
 				const profile = String(process.env.DSH_PROFILE ?? 'web').trim() || 'web';
 				const done = await new Promise((resolve) => {
 					execFile(
@@ -95,18 +188,114 @@ export function apply(ctx) {
 				});
 				const output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
 				if (done.error) {
-					return sendJson(res, 200, { ok: false, error: done.error.message, output });
+					const hint = done.error.code === 'ENOENT'
+						? '找不到 dsh 命令（容器 PATH 问题？）'
+						: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 3 分钟）'
+							: /pnpm not found/i.test(output) ? '容器缺少 pnpm（需在镜像中安装）'
+								: /allowBuilds/i.test(output) ? 'Git 托管的插件需要先在 pnpm-workspace.yaml 配置 allowBuilds 才能执行构建脚本' : '';
+					return sendJson(res, 200, { ok: false, error: done.error.message, output, hint });
 				}
-				sendJson(res, 200, { ok: true, output, note: '插件已安装，重启服务后生效' });
+				const hint = /allowBuilds/i.test(output)
+					? 'Git 托管插件需要 allowBuilds 授权：请在 dsh 容器的 pnpm-workspace.yaml 中添加上面提示的包名，然后重新安装。'
+					: raw !== spec ? `已把 ${raw} 归一化为 ${spec}（pnpm 需要 github: 前缀）` : '';
+				sendJson(res, 200, { ok: true, output, note: '插件已安装，重启服务后生效', hint });
 			} catch (error) {
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
 			}
 		}
 	});
 
-	// ── 预览：工作区文件（HTML 等）────────────────────────────────────────
+	// ── 插件清单：当前 loader 非分组条目（与官方「插件列表」同源）──────────
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/plugin-market/list',
+		handler: async (req, res) => {
+			try {
+				const entries = [];
+				for (const entry of ctx.loader.entries()) {
+					if (entry.options.group) continue;
+					entries.push({
+						entryId: entry.id,
+						moduleName: entry.options.name,
+						enabled: !entry.disabled,
+						fiberPhase: entry.fiber === void 0 ? null : FIBER_PHASE[entry.fiber.state] ?? null
+					});
+				}
+				sendJson(res, 200, { ok: true, entries });
+			} catch (error) {
+				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+			}
+		}
+	});
+
+	// ── 启用/停用：运行期直接应用 + 写用户补丁层供重启保持 ──────────────
+	// 写 $DSH_HOME/cordis.patch.yml（dsh 用户补丁层，优先级高于 bundle 层，
+	// boot 时必读；运行时的 HMR 用户补丁热更新若有则自动再应用，幂等）。
+	// 同时直接调用 loader entry.update() 让本次运行立即生效（不依赖 watcher）。
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/plugin-market/toggle',
+		handler: async (req, res) => {
+			try {
+				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
+				const body = JSON.parse((await readBody(req)) || '{}');
+				const entryId = String(body.entryId ?? '').trim();
+				if (!entryId) return sendJson(res, 400, { ok: false, error: '缺少 entryId' });
+				let entry = null;
+				for (const candidate of ctx.loader.entries()) {
+					if (candidate.id === entryId) {
+						entry = candidate;
+						break;
+					}
+				}
+				if (entry === null) return sendJson(res, 404, { ok: false, error: `未找到插件 ${entryId}` });
+				const enabled = !entry.disabled;
+				const nextEnabled = !enabled;
+				const nextDisabled = !nextEnabled;
+				// 补丁行 id 必须用原始 options.id（loader 的 applyEntryPatches 按
+				// 原始 id 建索引；带前缀的计算 id 如 include:xxx 匹配不上会被跳过）
+				const patchId = entry.options.id || entryId;
+				// 1) 写补丁文件（重启后保持）
+				writeDisabledRow(patchId, nextDisabled);
+				// 2) 运行期立即应用（禁用→卸载 fiber；启用→初始化）
+				try {
+					await entry.update({ disabled: nextDisabled }, false, true);
+				} catch (error) {
+					// 应用失败（如插件初始化报错）：回滚补丁文件，避免重启后状态错位
+					writeDisabledRow(patchId, !nextDisabled);
+					return sendJson(res, 200, { ok: false, error: `应用失败（已回滚）：${error?.message ?? error}` });
+				}
+				sendJson(res, 200, {
+					ok: true,
+					entryId,
+					enabled: nextEnabled,
+					note: nextEnabled ? '已启用（即时生效，重启后保持）' : '已停用（即时生效，重启后保持）'
+				});
+			} catch (error) {
+				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+			}
+		}
+	});
+
+	// ── 预览：工作区文件（HTML / Markdown / 图片 / 代码等）────────────────
 	// 根目录用 PREVIEW_ROOT 覆盖（本地测试时可指向任意目录；部署默认 /workspace）。
+	// 会话里的文件提及常带绝对路径（如 /tmp/xxx.html），用 PREVIEW_EXTRA_ROOTS
+	// 追加可读根（逗号分隔，默认容器临时目录），越界一律 403。
 	const PREVIEW_ROOT = String(process.env.PREVIEW_ROOT ?? '/workspace');
+	/** 解析目录并归一化符号链接（macOS 的 /tmp → /private/tmp 等）。 */
+	function resolveRoot(p) {
+		try {
+			return realpathSync(p);
+		} catch {
+			return resolve(p);
+		}
+	}
+	const extraRootsEnv = (process.env.PREVIEW_EXTRA_ROOTS ?? '').trim();
+	const PREVIEW_ROOTS = [
+		resolveRoot(PREVIEW_ROOT),
+		...(extraRootsEnv === '' ? [] : extraRootsEnv.split(',').map((s) => s.trim()).filter(Boolean).map(resolveRoot))
+	];
+	if (extraRootsEnv === '') PREVIEW_ROOTS.push(resolveRoot(tmpdir()), resolveRoot('/tmp'));
 
 	const PREVIEW_MIME = {
 		'.html': 'text/html; charset=utf-8',
@@ -117,6 +306,7 @@ export function apply(ctx) {
 		'.json': 'application/json; charset=utf-8',
 		'.map': 'application/json',
 		'.md': 'text/markdown; charset=utf-8',
+		'.markdown': 'text/markdown; charset=utf-8',
 		'.txt': 'text/plain; charset=utf-8',
 		'.svg': 'image/svg+xml',
 		'.png': 'image/png',
@@ -125,17 +315,51 @@ export function apply(ctx) {
 		'.gif': 'image/gif',
 		'.webp': 'image/webp',
 		'.ico': 'image/x-icon',
+		'.pdf': 'application/pdf',
 		'.woff': 'font/woff',
 		'.woff2': 'font/woff2',
 		'.wasm': 'application/wasm',
 		'.xml': 'application/xml; charset=utf-8',
 		'.yml': 'text/plain; charset=utf-8',
-		'.yaml': 'text/plain; charset=utf-8'
+		'.yaml': 'text/plain; charset=utf-8',
+		// 代码文件按纯文本渲染，iframe 内可直接阅读
+		'.py': 'text/plain; charset=utf-8',
+		'.ts': 'text/plain; charset=utf-8',
+		'.tsx': 'text/plain; charset=utf-8',
+		'.jsx': 'text/plain; charset=utf-8',
+		'.c': 'text/plain; charset=utf-8',
+		'.h': 'text/plain; charset=utf-8',
+		'.cpp': 'text/plain; charset=utf-8',
+		'.java': 'text/plain; charset=utf-8',
+		'.go': 'text/plain; charset=utf-8',
+		'.rs': 'text/plain; charset=utf-8',
+		'.sh': 'text/plain; charset=utf-8',
+		'.sql': 'text/plain; charset=utf-8',
+		'.csv': 'text/plain; charset=utf-8',
+		'.log': 'text/plain; charset=utf-8',
+		'.toml': 'text/plain; charset=utf-8',
+		'.ini': 'text/plain; charset=utf-8',
+		'.conf': 'text/plain; charset=utf-8'
 	};
 
-	/** 把相对路径安全地解析到 PREVIEW_ROOT 内，越界返回 null。 */
+	/** 把相对/绝对路径安全地解析到允许根内，越界返回 null。 */
 	function previewPath(rel) {
-		const root = resolve(PREVIEW_ROOT);
+		// 绝对路径（/tmp/xxx.html、/workspace/foo.md 等）：必须落在某个允许根内
+		if (rel.startsWith('/')) {
+			const candidate = resolve(rel);
+			let real = candidate;
+			try {
+				real = realpathSync(candidate);
+			} catch {
+				/* 文件不存在：按未归一化路径做前缀判断 */
+			}
+			for (const root of PREVIEW_ROOTS) {
+				if (real === root || real.startsWith(root + sep)) return candidate;
+			}
+			return null;
+		}
+		// 相对路径：以第一个根（工作区）为基准
+		const root = PREVIEW_ROOTS[0];
 		const target = resolve(root, '.' + sep + rel);
 		if (target !== root && !target.startsWith(root + sep)) return null;
 		return target;
@@ -163,7 +387,7 @@ export function apply(ctx) {
 			if (m) {
 				closeList();
 				const n = m[1].length;
-				out += n <= 2 ? `<h${n}>${inline(m[2])}</h${n}>` : `<h${n}>${inline(m[2])}</h${n}>`;
+				out += `<h${n}>${inline(m[2])}</h${n}>`;
 				continue;
 			}
 			if (line.trim() === '') { closeList(); continue; }
@@ -208,7 +432,7 @@ export function apply(ctx) {
 				if (target === null) return sendJson(res, 403, { ok: false, error: '路径越界' });
 				const body = await readFile(target);
 				const ext = extname(target).toLowerCase();
-				if (ext === '.md') {
+				if (ext === '.md' || ext === '.markdown') {
 					const html = Buffer.from(MD_SHELL(renderMarkdown(body.toString('utf8'))), 'utf8');
 					res.writeHead(200, {
 						'Content-Type': 'text/html; charset=utf-8',
@@ -274,6 +498,7 @@ export function apply(ctx) {
 	});
 
 	// ── 重启服务：插件安装后一键生效（SIGTERM 优雅退出 → 容器自动重启）──
+	// SIGTERM 若被吞掉（进程未退），3 秒后以非零码强制退出，平台必重启。
 	ctx.webServer.register({
 		kind: 'exact',
 		path: '/api/plugin-market/restart',
@@ -284,8 +509,15 @@ export function apply(ctx) {
 				try {
 					process.kill(process.pid, 'SIGTERM');
 				} catch {
-					process.exit(0);
+					/* 进程已退出或信号不支持 */
 				}
+				setTimeout(() => {
+					try {
+						process.exit(1);
+					} catch {
+						/* 忽略 */
+					}
+				}, 2500);
 			}, 600);
 		}
 	});
