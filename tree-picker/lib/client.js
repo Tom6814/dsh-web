@@ -74,6 +74,13 @@ window.__ModuleLoader__.load({
 
 		/** 单列树形目录选择器（directoryFlow 插槽占用者）。 */
 		function TreeDirectoryFlow(props) {
+			// 官方 BrowseDirectoryFlow 同款开关：open 为假（选择器未打开）时不渲染，
+			// 否则树形会常驻在 hero / sidebar 两个插槽位置（即"散布到网页各处"）。
+			return props.open ? react.createElement(TreeDialog, props) : null;
+		}
+
+		/** 树形对话框主体（所有 hooks 都留在这里，wrapper 上方直接 return）。 */
+		function TreeDialog(props) {
 			const { listDirectory, createDirectory, t, onPicked, onCancel } = props;
 			const [home, setHome] = useState(null);
 			const [expanded, setExpanded] = useState(() => new Set());
