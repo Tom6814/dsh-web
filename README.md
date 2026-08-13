@@ -1,8 +1,10 @@
-# DeepSeek Harness · Web 部署版
+# DeepSeek Harness Web 部署版
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`@deepseek-ai/dsh`）的 Web 网页部署版，
 支持 **Docker** 部署，也可在 **Zeabur** 上一键部署。部署后通过浏览器访问完整的 Harness Web 界面：
 对话、工作区（网页内目录浏览 + 新建文件夹）、插件市场（搜索 GitHub `dsh-plugin` 插件并安装）等。
+
+#### 目前项目正在高速开发中，很快将增加更多功能
 
 ## 部署
 
