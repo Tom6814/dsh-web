@@ -27,14 +27,12 @@ echo "    profile : $DSH_PROFILE"
 echo "    DSH_HOME: $DSH_HOME"
 
 if [ "$DSH_PROFILE" = "web" ]; then
-  # ── 1. 确保内置插件已安装（挂载新持久化卷后首次启动需要补装）──
+  # ── 1. 确保插件市场已安装（挂载新持久化卷后首次启动需要补装）──
   #        镜像构建时已预装；若卷覆盖了 /data 则在此兜底。
-  for pkg in dsh-plugin-market dsh-tree-picker; do
-    if [ ! -d "$DSH_HOME/profiles/web/node_modules/$pkg" ]; then
-      echo "    $pkg: 首次安装…"
-      dsh plugin --profile web add "/opt/dsh-zeabur/$pkg"
-    fi
-  done
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-plugin-market" ]; then
+    echo "    plugin-market: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/plugin-market
+  fi
 
   # ── 2. 组装 --trusted-host：Zeabur 域名 + 用户自定义 ──
   #        从 URL 提取时只取 hostname（去掉端口）：port-less 条目在信任围栏中
