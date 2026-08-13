@@ -231,94 +231,100 @@ window.__ModuleLoader__.load({
 		* @returns 清理函数。
 		*/
 		function mountPreview(t) {
-			const el = (tag, style, ...children) => {
-				const node = document.createElement(tag);
-				Object.assign(node.style, style);
-				for (const child of children) {
-					if (child == null) continue;
-					node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
-				}
-				return node;
-			};
-			const P = {
-				fab: { position: 'fixed', right: 18, bottom: 18, zIndex: 9998, padding: '8px 14px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit', boxShadow: '0 4px 16px rgba(0,0,0,.28)' },
-				panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(56vw, 880px)', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', boxShadow: '-10px 0 28px rgba(0,0,0,.22)', color: 'var(--dsw-alias-label-primary)' },
-				head: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
-				ctrl: { flex: 'none', height: 28, minWidth: 28, padding: '0 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit' },
-				addr: { flex: 1, height: 28, minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 8px', fontSize: 12, font: 'inherit' },
-				iframe: { flex: 1, width: '100%', border: 0, background: '#fff' },
-				empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px' }
-			};
+			const mount = () => {
+				const el = (tag, style, ...children) => {
+					const node = document.createElement(tag);
+					Object.assign(node.style, style);
+					for (const child of children) {
+						if (child == null) continue;
+						node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+					}
+					return node;
+				};
+				const P = {
+					fab: { position: 'fixed', right: 18, bottom: 18, zIndex: 9998, padding: '10px 16px', borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, font: 'inherit', boxShadow: '0 4px 16px rgba(0,0,0,.32)' },
+					panel: { position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(56vw, 880px)', background: 'var(--dsw-alias-bg-layer-1)', borderLeft: '1px solid var(--dsw-alias-border-l2)', zIndex: 9999, display: 'none', flexDirection: 'column', boxShadow: '-10px 0 28px rgba(0,0,0,.22)', color: 'var(--dsw-alias-label-primary)' },
+					head: { display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
+					ctrl: { flex: 'none', height: 28, minWidth: 28, padding: '0 6px', borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-primary)', cursor: 'pointer', fontSize: 13, font: 'inherit' },
+					addr: { flex: 1, height: 28, minWidth: 0, borderRadius: 6, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 8px', fontSize: 12, font: 'inherit' },
+					iframe: { flex: 1, width: '100%', border: 0, background: '#fff' },
+					empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px' }
+				};
 
-			const panel = el('div', P.panel);
-			const addr = el('input', P.addr, '');
-			addr.placeholder = t('previewPlaceholder');
-			const frame = el('iframe', P.iframe);
-			frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
-			const empty = el('div', P.empty, t('previewHint'));
-			panel.appendChild(empty);
-			panel.appendChild(frame);
+				const panel = el('div', P.panel);
+				const addr = el('input', P.addr, '');
+				addr.placeholder = t('previewPlaceholder');
+				const frame = el('iframe', P.iframe);
+				frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
+				const empty = el('div', P.empty, t('previewHint'));
+				panel.appendChild(empty);
+				panel.appendChild(frame);
 
-			const mkBtn = (label, title, onClick) => {
-				const b = el('button', P.ctrl, label);
-				b.title = title;
-				b.onclick = onClick;
-				return b;
-			};
-			const head = el('div', P.head);
-			head.appendChild(mkBtn('←', t('previewBack'), () => { try { frame.contentWindow.history.back(); } catch {} }));
-			head.appendChild(mkBtn('→', t('previewForward'), () => { try { frame.contentWindow.history.forward(); } catch {} }));
-			head.appendChild(mkBtn('↻', t('previewRefresh'), () => { frame.src = frame.src; }));
-			head.appendChild(addr);
-			head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
-				if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
-			}));
-			head.appendChild(mkBtn('✕', t('previewClose'), () => { panel.style.display = 'none'; }));
-			panel.insertBefore(head, panel.firstChild);
+				const mkBtn = (label, title, onClick) => {
+					const b = el('button', P.ctrl, label);
+					b.title = title;
+					b.onclick = onClick;
+					return b;
+				};
+				const head = el('div', P.head);
+				head.appendChild(mkBtn('←', t('previewBack'), () => { try { frame.contentWindow.history.back(); } catch {} }));
+				head.appendChild(mkBtn('→', t('previewForward'), () => { try { frame.contentWindow.history.forward(); } catch {} }));
+				head.appendChild(mkBtn('↻', t('previewRefresh'), () => { frame.src = frame.src; }));
+				head.appendChild(addr);
+				head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
+					if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
+				}));
+				head.appendChild(mkBtn('✕', t('previewClose'), () => { panel.style.display = 'none'; }));
+				panel.insertBefore(head, panel.firstChild);
 
-			const fab = el('button', P.fab, '◧ ' + t('preview'));
-			fab.title = t('previewTitle');
-			fab.onclick = () => {
-				if (panel.style.display === 'flex') {
-					panel.style.display = 'none';
-				} else {
+				const fab = el('button', P.fab, '◧ ' + t('preview'));
+				fab.title = t('previewTitle');
+				fab.onclick = () => {
+					if (panel.style.display === 'flex') {
+						panel.style.display = 'none';
+					} else {
+						panel.style.display = 'flex';
+						if (!addr.value) { frame.style.display = 'none'; empty.style.display = 'flex'; }
+					}
+				};
+				const openPanel = (url) => {
 					panel.style.display = 'flex';
-					if (!addr.value) { frame.style.display = 'none'; empty.style.display = 'flex'; }
-				}
-			};
-			const openPanel = (url) => {
-				panel.style.display = 'flex';
-				frame.style.display = 'block';
-				empty.style.display = 'none';
-				frame.src = url;
-				addr.value = url;
-			};
-			addr.addEventListener('keydown', (e) => {
-				if (e.key !== 'Enter') return;
-				const v = addr.value.trim();
-				openPanel(toPreviewUrl(v) || v);
-			});
+					frame.style.display = 'block';
+					empty.style.display = 'none';
+					frame.src = url;
+					addr.value = url;
+				};
+				addr.addEventListener('keydown', (e) => {
+					if (e.key !== 'Enter') return;
+					const v = addr.value.trim();
+					openPanel(toPreviewUrl(v) || v);
+				});
 
-			// 链接重写（捕获阶段）：对话里的 localhost / 相对文件链接 → 面板内打开
-			const onClick = (e) => {
-				const a = e.target && e.target.closest ? e.target.closest('a') : null;
-				if (!a) return;
-				const href = a.getAttribute('href') || '';
-				const target = toPreviewUrl(href);
-				if (!target) return;
-				e.preventDefault();
-				e.stopPropagation();
-				openPanel(target);
-			};
-			document.addEventListener('click', onClick, true);
+				// 链接重写（捕获阶段）：对话里的 localhost / 相对文件链接 → 面板内打开
+				const onClick = (e) => {
+					const a = e.target && e.target.closest ? e.target.closest('a') : null;
+					if (!a) return;
+					const href = a.getAttribute('href') || '';
+					const target = toPreviewUrl(href);
+					if (!target) return;
+					e.preventDefault();
+					e.stopPropagation();
+					openPanel(target);
+				};
+				document.addEventListener('click', onClick, true);
 
-			document.body.appendChild(fab);
-			document.body.appendChild(panel);
-			return () => {
-				document.removeEventListener('click', onClick, true);
-				fab.remove();
-				panel.remove();
+				document.body.appendChild(fab);
+				document.body.appendChild(panel);
+				return () => {
+					document.removeEventListener('click', onClick, true);
+					fab.remove();
+					panel.remove();
+				};
 			};
+			// body 可能尚未就绪（部分内嵌浏览器环境下插件激活早于 DOM）；等就绪再挂载
+			if (document.body) return mount();
+			document.addEventListener('DOMContentLoaded', mount, { once: true });
+			return () => document.removeEventListener('DOMContentLoaded', mount);
 		}
 
 		/** 注册「插件市场」tab 到设置 → 插件板块，并挂载预览面板。 */
@@ -332,7 +338,8 @@ window.__ModuleLoader__.load({
 				label: () => t('tab'),
 				locale: NS
 			}, MarketTab));
-			// 预览面板：全局挂载一次
+			// 预览面板：全局挂载一次；版本标记便于诊断缓存问题
+			try { window.__DSH_PREVIEW_VERSION = '0.1.1'; } catch {}
 			ctx.effect(() => mountPreview(t), 'plugin-market: preview panel');
 		}
 
