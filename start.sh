@@ -150,6 +150,28 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # Web 构建产物（vendor/index 的 .js/.css 等）：文件名带内容 hash，不可变，
+    # 浏览器长缓存一年——vendor.js 约 745KB / shell 约 443KB，不再重复下载
+    location /assets/ {
+        proxy_pass http://127.0.0.1:__LISTEN__;
+        proxy_http_version 1.1;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        proxy_read_timeout 60s;
+    }
+
+    # PWA manifest：内容可能随版本变化，短缓存即可
+    location = /manifest.webmanifest {
+        proxy_pass http://127.0.0.1:__LISTEN__;
+        proxy_http_version 1.1;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        proxy_read_timeout 60s;
+    }
+
     # 其余（index.html / api JSON 等）：gzip 压缩
     location / {
         proxy_pass http://127.0.0.1:__LISTEN__;

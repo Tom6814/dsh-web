@@ -357,16 +357,34 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		* 预览面板：DeepSeek 风格的右侧抽屉（圆润、灰调，不遮挡对话——打开时
-		* 把页面 #root 往左挤，像 TRAE Work 的分栏预览）。拦截本地链接
-		* （localhost:端口 / 相对文件路径）与对话中的文件提及自动在面板内打开。
-		* 右上角 Session Log 旁的胶囊按钮（由 slot 注册）负责开关。
+		* 预览面板 v2（Trae Work 风格分栏预览）：
+		* - Dock 分栏：打开时把 #root 往左挤（marginRight = 面板宽度），不遮挡对话
+		* - 拖拽分隔条调宽（320~上限），宽度持久化到 localStorage
+		* - 缩放控件（50%~200%）、前进/后退/刷新/外开/关闭
+		* - 加载指示（spinner）、错误覆盖层（JSON 错误友好提示）
+		* - 移动端（≤860px）自动全屏
+		* - Esc 关闭；拦截对话里的 localhost 链接与文件提及自动打开
+		* 右上角 Session Log 旁的胶囊按钮（slot 注册）负责开关。
 		* @param t - 词典绑定。
 		* @returns 清理函数。
 		*/
 		function mountPreview(t) {
-			const PANEL_W = 520;
+			const STORE = 'dshPreviewV2';
+			const loadState = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
+			const saveState = (patch) => {
+				try { localStorage.setItem(STORE, JSON.stringify(Object.assign(loadState(), patch))); } catch {}
+			};
 			const mount = () => {
+				const st = loadState();
+				const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+				const isMobile = () => window.matchMedia('(max-width: 860px)').matches;
+				const MIN_W = 320;
+				const MAX_W = Math.max(MIN_W, Math.min(1100, (window.innerWidth || 1280) - 380));
+				const state = {
+					width: clamp(Number(st.width) || 520, MIN_W, MAX_W),
+					zoom: clamp(Number(st.zoom) || 1, 0.5, 2),
+					open: !!st.open
+				};
 				const el = (tag, style, ...children) => {
 					const node = document.createElement(tag);
 					for (const [key, value] of Object.entries(style)) {
@@ -380,17 +398,25 @@ window.__ModuleLoader__.load({
 					}
 					return node;
 				};
-				// DeepSeek 同款质感：圆角浮层、胶囊控件、灰调层叠、柔和阴影
+				// Trae Work 同款质感：圆角浮层、胶囊控件、灰调层叠、柔和阴影
 				const P = {
-					panel: { position: 'fixed', top: 14, right: 14, bottom: 14, width: PANEL_W + 'px', background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 20, zIndex: 9999, display: 'none', flexDirection: 'column', color: 'var(--dsw-alias-label-primary)', boxShadow: '0 20px 56px rgba(0,0,0,.20)', overflow: 'hidden' },
-					head: { display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px 10px', background: 'var(--dsw-alias-bg-layer-1)' },
-					ctrl: { flex: 'none', height: 32, minWidth: 32, padding: '0 10px', borderRadius: 999, border: 'none', background: 'var(--dsw-alias-bg-layer-3)', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 14, font: 'inherit', transition: 'background .15s ease' },
-					addr: { flex: 1, height: 36, minWidth: 0, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 18px', fontSize: 13, font: 'inherit', outline: 'none' },
-					frameWrap: { flex: 1, margin: '2px 14px 14px', borderRadius: 14, overflow: 'hidden', background: '#fff', position: 'relative', border: '1px solid var(--dsw-alias-border-l2)' },
+					panel: { position: 'fixed', top: 14, right: 14, bottom: 14, width: state.width + 'px', background: 'var(--dsw-alias-bg-layer-1)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 16, zIndex: 9999, display: 'none', flexDirection: 'column', color: 'var(--dsw-alias-label-primary)', boxShadow: '0 16px 48px rgba(0,0,0,.22)', overflow: 'hidden' },
+					divider: { position: 'fixed', top: 14, bottom: 14, width: 8, cursor: 'col-resize', zIndex: 10000, display: 'none', marginLeft: -4 },
+					dividerLine: { position: 'absolute', top: '50%', left: 3, width: 2, height: 56, borderRadius: 1, background: 'var(--dsw-alias-border-l2)', transform: 'translateY(-50%)' },
+					head: { display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px 8px', background: 'var(--dsw-alias-bg-layer-1)', borderBottom: '1px solid var(--dsw-alias-border-l2)' },
+					ctrl: { flex: 'none', height: 30, minWidth: 30, padding: '0 9px', borderRadius: 999, border: '1px solid transparent', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', cursor: 'pointer', fontSize: 13, font: 'inherit', transition: 'background .12s ease' },
+					addr: { flex: 1, height: 30, minWidth: 0, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-2)', color: 'var(--dsw-alias-label-primary)', padding: '0 14px', fontSize: 12, font: 'inherit', outline: 'none' },
+					frameWrap: { flex: 1, position: 'relative', background: '#fff', overflow: 'hidden' },
 					iframe: { width: '100%', height: '100%', border: 0, background: '#fff', display: 'block' },
-					overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px', background: 'var(--dsw-alias-bg-layer-1)', borderRadius: 14 },
-					overlayTitle: { color: 'var(--dsw-alias-label-secondary)', fontSize: 14, fontWeight: 600 }
+					overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'none', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, padding: 24, textAlign: 'center', lineHeight: '22px', background: 'var(--dsw-alias-bg-layer-1)' },
+					overlayTitle: { color: 'var(--dsw-alias-label-secondary)', fontSize: 14, fontWeight: 600 },
+					spinner: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'none', alignItems: 'center', justifyContent: 'center', background: 'var(--dsw-alias-bg-layer-1)', zIndex: 2 },
+					spinDot: { width: 26, height: 26, borderRadius: '50%', border: '3px solid var(--dsw-alias-border-l2)', borderTopColor: 'var(--dsw-alias-state-business-primary)', animation: 'dshPreviewSpin .7s linear infinite' },
+					zoomBadge: { flex: 'none', minWidth: 44, textAlign: 'center', color: 'var(--dsw-alias-label-tertiary)', fontSize: 11, lineHeight: '30px' }
 				};
+				const spinKeyframes = document.createElement('style');
+				spinKeyframes.textContent = '@keyframes dshPreviewSpin{to{transform:rotate(360deg)}}';
+				document.head.appendChild(spinKeyframes);
 
 				const panel = el('div', P.panel);
 				const addr = el('input', P.addr, '');
@@ -398,14 +424,19 @@ window.__ModuleLoader__.load({
 				addr.spellcheck = false;
 				const frameWrap = el('div', P.frameWrap);
 				const frame = el('iframe', P.iframe);
-				frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-downloads');
+				frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-popups allow-downloads allow-same-origin');
 				const overlay = el('div', P.overlay);
+				const spinner = el('div', P.spinner, el('div', P.spinDot));
+				const divider = el('div', P.divider, el('div', P.dividerLine));
+				const zoomLabel = el('span', P.zoomBadge, Math.round(state.zoom * 100) + '%');
+				frameWrap.appendChild(spinner);
 				frameWrap.appendChild(overlay);
 				frameWrap.appendChild(frame);
 				panel.appendChild(frameWrap);
 
-				// iframe 加载后：同源可读内容，若是 JSON 错误则显示友好提示覆盖层
+				// iframe 加载后：隐藏 spinner；同源可读时若是 JSON 错误则显示友好覆盖层
 				frame.onload = () => {
+					spinner.style.display = 'none';
 					try {
 						const doc = frame.contentDocument;
 						const text = doc && doc.body ? doc.body.innerText.trim() : '';
@@ -421,50 +452,104 @@ window.__ModuleLoader__.load({
 						}
 					} catch { /* 跨源时保持 iframe 原样 */ }
 				};
+				const showSpinner = () => { overlay.style.display = 'none'; spinner.style.display = 'flex'; };
 
 				const mkBtn = (label, title, onClick) => {
 					const b = el('button', P.ctrl, label);
 					b.title = title;
 					b.onmouseenter = () => { b.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
-					b.onmouseleave = () => { b.style.background = 'var(--dsw-alias-bg-layer-3)'; };
+					b.onmouseleave = () => { b.style.background = 'transparent'; };
 					b.onclick = onClick;
 					return b;
+				};
+				const setZoom = (z) => {
+					state.zoom = clamp(z, 0.5, 2);
+					frame.style.zoom = String(state.zoom);
+					zoomLabel.textContent = Math.round(state.zoom * 100) + '%';
+					saveState({ zoom: state.zoom });
 				};
 				const head = el('div', P.head);
 				head.appendChild(mkBtn('←', t('previewBack'), () => { try { frame.contentWindow.history.back(); } catch {} }));
 				head.appendChild(mkBtn('→', t('previewForward'), () => { try { frame.contentWindow.history.forward(); } catch {} }));
-				head.appendChild(mkBtn('↻', t('previewRefresh'), () => { frame.src = frame.src; }));
+				head.appendChild(mkBtn('↻', t('previewRefresh'), () => { showSpinner(); frame.src = frame.src; }));
 				head.appendChild(addr);
+				head.appendChild(mkBtn('−', '缩小（50%~200%）', () => setZoom(state.zoom - 0.25)));
+				head.appendChild(zoomLabel);
+				head.appendChild(mkBtn('＋', '放大', () => setZoom(state.zoom + 0.25)));
 				head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
 					if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
 				}));
 				head.appendChild(mkBtn('✕', t('previewClose'), () => { setOpen(false); }));
 				panel.insertBefore(head, panel.firstChild);
+				document.body.appendChild(divider);
+				document.body.appendChild(panel);
 
 				// 布局：打开时把 #root 往左挤（不遮挡对话），关闭时复位
 				const root = document.getElementById('root');
-				const applyLayout = (open) => {
+				const effWidth = () => (isMobile() ? window.innerWidth : state.width);
+				const applyLayout = (animate) => {
 					if (!root) return;
-					root.style.transition = 'margin-right .28s cubic-bezier(.4,0,.2,1)';
-					root.style.marginRight = open ? PANEL_W + 'px' : '0px';
+					if (animate === false) root.style.transition = 'none';
+					else root.style.transition = 'margin-right .28s cubic-bezier(.4,0,.2,1)';
+					root.style.marginRight = state.open && !isMobile() ? effWidth() + 14 + 'px' : '0px';
+				};
+				const posDivider = () => {
+					if (isMobile()) { divider.style.display = 'none'; return; }
+					divider.style.display = state.open ? 'block' : 'none';
+					divider.style.left = (window.innerWidth - effWidth() - 14 - 4) + 'px';
 				};
 				const setOpen = (open) => {
+					state.open = open;
 					panel.style.display = open ? 'flex' : 'none';
-					applyLayout(open);
+					panel.style.width = effWidth() + 'px';
+					applyLayout(true);
+					posDivider();
+					saveState({ open });
 					if (open && !addr.value) {
 						frame.style.display = 'none';
+						spinner.style.display = 'none';
 						overlay.style.display = 'flex';
 						overlay.replaceChildren(el('span', P.overlayTitle, t('previewTitle')), el('span', null, t('previewHint')));
+					} else if (open) {
+						frame.style.display = 'block';
 					}
 				};
 				const openPanel = (url) => {
+					state.open = true;
 					panel.style.display = 'flex';
+					panel.style.width = effWidth() + 'px';
 					frame.style.display = 'block';
 					overlay.style.display = 'none';
+					showSpinner();
 					frame.src = url;
 					addr.value = url;
 					applyLayout(true);
+					posDivider();
+					saveState({ open: true });
 				};
+
+				// 拖拽分隔条调宽（持久化）
+				divider.addEventListener('mousedown', (e) => {
+					e.preventDefault();
+					applyLayout(false);
+					const startX = e.clientX;
+					const startW = effWidth();
+					const onMove = (ev) => {
+						const w = clamp(startW + (startX - ev.clientX), MIN_W, MAX_W);
+						state.width = w;
+						panel.style.width = w + 'px';
+						if (root) root.style.marginRight = w + 14 + 'px';
+						posDivider();
+					};
+					const onUp = () => {
+						document.removeEventListener('mousemove', onMove);
+						document.removeEventListener('mouseup', onUp);
+						applyLayout(true);
+						saveState({ width: state.width });
+					};
+					document.addEventListener('mousemove', onMove);
+					document.addEventListener('mouseup', onUp);
+				});
 				addr.addEventListener('keydown', (e) => {
 					if (e.key !== 'Enter') return;
 					const v = addr.value.trim();
@@ -497,19 +582,48 @@ window.__ModuleLoader__.load({
 				};
 				document.addEventListener('click', onClick, true);
 
+				// Esc 关闭预览
+				const onKey = (e) => { if (e.key === 'Escape' && state.open) setOpen(false); };
+				document.addEventListener('keydown', onKey);
+
+				// 移动端切换（窄屏全屏 ↔ 宽屏分栏）
+				const mq = window.matchMedia('(max-width: 860px)');
+				const onMq = () => {
+					if (!state.open) return;
+					panel.style.width = effWidth() + 'px';
+					applyLayout(false);
+					posDivider();
+					setTimeout(() => applyLayout(true), 60);
+				};
+				if (mq.addEventListener) mq.addEventListener('change', onMq);
+				else if (mq.addListener) mq.addListener(onMq);
+
+				// 初始缩放与状态恢复（上次打开过则恢复）
+				frame.style.zoom = String(state.zoom);
+				if (state.open) {
+					panel.style.display = 'flex';
+					panel.style.width = effWidth() + 'px';
+					applyLayout(false);
+					posDivider();
+				}
+
 				// 全局开关：右上角 header 胶囊按钮调用
 				const api = {
 					toggle: () => setOpen(panel.style.display !== 'flex'),
 					open: (url) => openPanel(url),
 					isOpen: () => panel.style.display === 'flex',
-					version: '0.1.2'
+					version: '0.2.0'
 				};
 				try { window.__DSH_PREVIEW__ = api; } catch {}
 
-				document.body.appendChild(panel);
 				return () => {
 					document.removeEventListener('click', onClick, true);
+					document.removeEventListener('keydown', onKey);
+					if (mq.removeEventListener) mq.removeEventListener('change', onMq);
+					else if (mq.removeListener) mq.removeListener(onMq);
 					panel.remove();
+					divider.remove();
+					spinKeyframes.remove();
 					applyLayout(false);
 					if (root) root.style.transition = '';
 					try { delete window.__DSH_PREVIEW__; } catch {}

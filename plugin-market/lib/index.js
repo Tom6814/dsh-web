@@ -1074,8 +1074,24 @@ export function apply(ctx) {
 	// ── 隐藏官方「打开配置文件」按钮（容器环境无本地编辑器，按钮点了必失败）──
 	// 通过 index.html 注入一个小脚本：用 MutationObserver 在按钮出现时按文案
 	// 找到它并连同外层一起隐藏。中文/英文文案都覆盖。
+	// 同时注入全局体验 CSS（工作台式微调）：滚动条美化、防止横向溢出、
+	// 平滑滚动、预览 iframe 的显示效果增强。
+	const WEB_POLISH_CSS = `<style id="dsh-web-polish">
+		/* 细滚动条 + 圆角滑轨（跟随主题变量） */
+		* { scrollbar-width: thin; scrollbar-color: var(--dsw-alias-border-l2, rgba(128,128,128,.35)) transparent; }
+		::-webkit-scrollbar { width: 8px; height: 8px; }
+		::-webkit-scrollbar-track { background: transparent; }
+		::-webkit-scrollbar-thumb { background: var(--dsw-alias-border-l2, rgba(128,128,128,.35)); border-radius: 4px; }
+		::-webkit-scrollbar-thumb:hover { background: var(--dsw-alias-state-business-primary, #4d6bfe); }
+		/* 页面级防横向溢出 + 平滑滚动 */
+		html, body { overscroll-behavior: none; }
+		html { scroll-behavior: smooth; }
+		body { overflow-x: hidden; }
+		/* 移动端触控优化 */
+		@media (max-width: 860px) { body { -webkit-tap-highlight-color: transparent; } }
+	</style>`;
 	ctx.webServer.tapIndex((html) => html.replace(
 		'</body>',
-		`<script>(function(){var H=function(){document.querySelectorAll('button').forEach(function(b){var t=(b.textContent||'').replace(/\\s+/g,'');if(t==='打开配置文件'||t==='Openconfigurationfile'){var w=b.closest('div');if(w){w.style.display='none';}else{b.style.display='none';}}})};if(document.body){new MutationObserver(H).observe(document.body,{childList:true,subtree:true});}H();})();<\/script></body>`
-	), 'plugin-market: hide open-document button');
+		`${WEB_POLISH_CSS}<script>(function(){var H=function(){document.querySelectorAll('button').forEach(function(b){var t=(b.textContent||'').replace(/\\s+/g,'');if(t==='打开配置文件'||t==='Openconfigurationfile'){var w=b.closest('div');if(w){w.style.display='none';}else{b.style.display='none';}}})};if(document.body){new MutationObserver(H).observe(document.body,{childList:true,subtree:true});}H();})();<\/script></body>`
+	), 'plugin-market: web polish css + hide open-document button');
 }
