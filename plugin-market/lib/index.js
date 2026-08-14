@@ -28,6 +28,138 @@ function log(...args) {
 
 const GH_SEARCH = 'https://api.github.com/search/repositories';
 
+// npm 包 dsh 声明缓存（TTL 10 分钟）：避免每次搜索都打 registry
+const npmDshCache = new Map();
+// 仓库 → npm 包检测结果缓存（TTL 30 分钟）：GitHub API 有速率限制，必须缓存
+const repoNpmCache = new Map();
+
+/** npm 包是否存在于 registry（只区分存在/不存在）。 */
+async function npmExists(name) {
+	const hit = npmDshCache.get(name);
+	if (hit && Date.now() - hit.t < 10 * 60_000) return true;
+	try {
+		const r = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name).replace(/%2F/g, '/')}/latest`, {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(8000)
+		});
+		return r.ok;
+	} catch (error) {
+		log(`npmExists: 查询失败 ${name}: ${String(error?.cause?.message ?? error?.message ?? error)}`);
+		return false;
+	}
+}
+
+/** 读取 GitHub 仓库内的原始文件（根 package.json / 子包 package.json）。 */
+async function fetchRepoRaw(fullName, filePath) {
+	try {
+		const r = await fetch(`https://raw.githubusercontent.com/${fullName}/HEAD/${filePath}`, {
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!r.ok) return null;
+		return await r.json();
+	} catch {
+		return null;
+	}
+}
+
+/**
+* 列出 GitHub 仓库目录（monorepo 子包名）。
+* 实现：抓 GitHub 树页面的 HTML 解析目录链接（github.com 页面无 API 限流）；
+* 不依赖 api.github.com（未认证 60 req/h 极易打满）。
+*/
+async function ghContents(fullName, dir) {
+	try {
+		const r = await fetch(`https://github.com/${fullName}/tree/HEAD/${dir}`, {
+			headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+			signal: AbortSignal.timeout(10000)
+		});
+		if (!r.ok) {
+			log(`ghContents[${fullName}/${dir}]: HTTP ${r.status}`);
+			return [];
+		}
+		const html = await r.text();
+		// 注意：必须用 new RegExp 构造——正则字面量不支持 ${dir} 插值
+		const re = new RegExp(`/tree/[^/"']+/${dir}/([A-Za-z0-9._-]+)`, 'g');
+		const names = [...html.matchAll(re)].map((m) => m[1]);
+		const result = [...new Set(names)].filter((n) => n && !n.includes('.') && !n.includes('#'));
+		log(`ghContents[${fullName}/${dir}]: status=${r.status} html=${html.length}B 提取=${result.length}`);
+		return result;
+	} catch (error) {
+		log(`ghContents[${fullName}/${dir}]: 异常 ${String(error?.cause?.message ?? error?.message ?? error)}`);
+		return [];
+	}
+}
+
+/**
+* 检测一个 GitHub 仓库对应的 npm 包：优先根 package.json 的 name；
+* 根包在 npm 上不存在时，探测 packages/ 目录下的子包（monorepo），
+* 返回带 dsh.bundle 的最优包。结果缓存 30 分钟。
+* @returns { rootName, npm } — npm: {name,hasBundle,hasClient,from} | null
+*/
+async function repoNpmInfo(fullName) {
+	const hit = repoNpmCache.get(fullName);
+	if (hit && Date.now() - hit.t < 30 * 60_000) return hit.info;
+	const info = { rootName: null, npm: null };
+	try {
+		const root = await fetchRepoRaw(fullName, 'package.json');
+		if (root?.name) {
+			info.rootName = root.name;
+			const rootInNpm = await npmExists(root.name);
+			if (rootInNpm) {
+				const dsh = await npmDsh(root.name);
+				info.npm = { name: root.name, hasBundle: !!dsh?.bundle?.patch, hasClient: !!dsh?.client, from: 'root' };
+			}
+		}
+		// monorepo：根包不在 npm（或没有 bundle）时探测 packages/ 子包
+		if (!info.npm?.hasBundle) {
+			const subDirs = await ghContents(fullName, 'packages');
+			log(`repoNpmInfo[${fullName}]: 根包 ${info.rootName ?? '(无)'} npm=${info.npm?.name ?? '无'}，packages/ 子目录=${subDirs.length ? subDirs.join(',') : '(空)'}`);
+			const candidates = [];
+			for (const sub of subDirs) {
+				const pkg = await fetchRepoRaw(fullName, `packages/${sub}/package.json`);
+				if (!pkg?.name) continue;
+				const inNpm = await npmExists(pkg.name);
+				if (!inNpm) continue;
+				const dsh = await npmDsh(pkg.name);
+				candidates.push({ name: pkg.name, hasBundle: !!dsh?.bundle?.patch, hasClient: !!dsh?.client, from: `packages/${sub}` });
+			}
+			log(`repoNpmInfo[${fullName}]: 子包候选=${candidates.map((c) => `${c.name}${c.hasBundle ? '(bundle)' : ''}`).join(',') || '(无)'}`);
+			// 优选：聚合包（-all 后缀）> 其它带 bundle 的包 > 任意 npm 子包
+			const best = candidates.find((p) => p.hasBundle && /-all$/.test(p.name))
+				|| candidates.find((p) => p.hasBundle)
+				|| candidates.find((p) => p.from.endsWith('-all'))
+				|| candidates[0];
+			if (best && !info.npm?.hasBundle) info.npm = best;
+		}
+	} catch {
+		/* 检测失败时 npm 保持 null，退回装 GitHub 仓库 */
+	}
+	repoNpmCache.set(fullName, { info, t: Date.now() });
+	return info;
+}
+
+/**
+* 读取 npm 包最新版的 dsh 声明（bundle/client），带内存缓存。
+* 判定"这个包装进 dsh 能否生效"的最可靠依据：真插件必有 dsh 字段。
+*/
+async function npmDsh(name) {
+	const hit = npmDshCache.get(name);
+	if (hit && Date.now() - hit.t < 10 * 60_000) return hit.dsh;
+	try {
+		const r = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name).replace(/%2F/g, '/')}/latest`, {
+			headers: { Accept: 'application/json' },
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!r.ok) return null;
+		const j = await r.json();
+		const dsh = j.dsh ?? null;
+		npmDshCache.set(name, { dsh, t: Date.now() });
+		return dsh;
+	} catch {
+		return null;
+	}
+}
+
 // ── dsh 数据目录解析（与 @deepseek-ai/dsh-home-paths 的 resolveDshHome 一致）──
 // 用户补丁层 $DSH_HOME/cordis.patch.yml 是所有 profile 共享的「机器级偏好」，
 // 优先级高于 bundle 补丁层；dsh 运行时会热监听它（watchUserPatches + HMR）。
@@ -312,8 +444,24 @@ export function apply(ctx) {
 				);
 				if (!gh.ok) return sendJson(res, 502, { ok: false, error: `GitHub API 返回 ${gh.status}` });
 				const data = await gh.json();
-				sendJson(res, 200, { ok: true, total: data.total_count, items: (data.items ?? []).map(toItem) });
+				// 对每个仓库检测对应 npm 包（带缓存）：有 npm 包时安装按钮可直接装 npm 包，
+				// 避免装到 monorepo 根包（无 dsh.bundle，装完不生效）
+				const items = await Promise.all((data.items ?? []).slice(0, 12).map(async (repo) => {
+					const info = await repoNpmInfo(repo.full_name);
+					return Object.assign(toItem(repo), {
+						npm: info.npm ? {
+							name: info.npm.name,
+							hasBundle: info.npm.hasBundle,
+							hasClient: info.npm.hasClient,
+							from: info.npm.from
+						} : null,
+						rootName: info.rootName ?? null
+					});
+				}));
+				log(`gh-search: q="${kw}" 结果=${items.length}  有 npm 包=${items.filter((x) => x.npm).length}  可一键生效=${items.filter((x) => x.npm?.hasBundle).length}`);
+				sendJson(res, 200, { ok: true, total: data.total_count, items });
 			} catch (error) {
+				log(`gh-search: 异常 ${String(error?.message ?? error)}`);
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
 			}
 		}

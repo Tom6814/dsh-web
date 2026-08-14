@@ -54,7 +54,7 @@ window.__ModuleLoader__.load({
 			toggleErr: '切换失败：',
 			enabledTag: '已启用',
 			disabledTag: '已停用',
-			poweredBy: '数据来源：GitHub topic:dsh-plugin（官方推荐插件话题）'
+			poweredBy: '数据来源：GitHub topic:dsh-plugin；标注 ✓ npm 的仓库将直接安装对应 npm 包'
 		};
 		const en = {
 			tab: 'Plugin market',
@@ -92,7 +92,7 @@ window.__ModuleLoader__.load({
 			toggleErr: 'Toggle failed: ',
 			enabledTag: 'Enabled',
 			disabledTag: 'Disabled',
-			poweredBy: 'Source: GitHub topic:dsh-plugin (official plugin topic)'
+			poweredBy: 'Source: GitHub topic:dsh-plugin; repos marked ✓ npm install their npm package directly'
 		};
 
 		// ── 轻量样式（跟随 dsh 的 CSS 变量，自动适配明暗主题）──
@@ -139,7 +139,7 @@ window.__ModuleLoader__.load({
 					.catch((e) => setState({ status: 'error', items: [], error: String(e) }));
 			}, []);
 
-			useEffect(() => { search(''); }, [search]);
+			useEffect(() => { search(''); }, []); // 仅挂载时搜索
 
 			const install = (spec) => {
 				setInstalling(spec);
@@ -265,14 +265,31 @@ window.__ModuleLoader__.load({
 						react.createElement('div', { key: 'f', style: S.cardFoot }, [
 							react.createElement('span', { key: 'm', style: S.cardMeta }, [
 								react.createElement('span', { key: 's', style: { whiteSpace: 'nowrap' } }, '★ ' + item.stars + ' ' + t('stars')),
-								item.language ? react.createElement('span', { key: 'l' }, item.language) : null
+								item.language ? react.createElement('span', { key: 'l' }, item.language) : null,
+								item.npm ? react.createElement('span', {
+									key: 'npm',
+									style: {
+										fontSize: 11,
+										lineHeight: '16px',
+										padding: '0 6px',
+										borderRadius: 4,
+										whiteSpace: 'nowrap',
+										overflow: 'hidden',
+										textOverflow: 'ellipsis',
+										maxWidth: 200,
+										color: item.npm.hasBundle ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warning-primary)',
+										border: '1px solid currentColor'
+									},
+									title: item.npm.hasBundle ? 'npm 包，安装后可直接生效' : 'npm 包但无 dsh.bundle，安装后可能不生效'
+								}, (item.npm.hasBundle ? '✓ ' : '⚠ ') + 'npm: ' + item.npm.name) : null
 							]),
 							react.createElement('button', {
 								key: 'i',
-								style: Object.assign({}, S.button, installing === item.fullName ? S.buttonDisabled : {}),
+								style: Object.assign({}, S.button, installing !== null ? S.buttonDisabled : {}),
 								disabled: installing !== null,
-								onClick: () => install(item.fullName)
-							}, installing === item.fullName ? t('installing') : t('install'))
+								title: item.npm?.hasBundle ? '安装 npm 包 ' + item.npm.name : (item.npm ? 'npm 包无 bundle，回退安装 GitHub 仓库' : '安装 GitHub 仓库'),
+								onClick: () => install(item.npm?.hasBundle ? item.npm.name : item.fullName)
+							}, installing === (item.npm?.hasBundle ? item.npm.name : item.fullName) ? t('installing') : t('install'))
 						])
 					])
 				)) : null,

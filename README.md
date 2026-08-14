@@ -74,14 +74,13 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   安全边界（防套取/防泄露）与委派记忆纪律。基于官方 standard preset，工具能力完全一致；
   提示段落由 `plugins/floatboat-style` 插件以 `systemPrompt.section()` 注入（对应
   Floatboat 的 prompt-segment 机制），每段可独立关闭。
-- **插件安装**：搜索结果的安装按钮支持 `owner/repo` GitHub 简写（自动归一化为
-  `github:owner/repo` 交给 pnpm）。**自动处理 pnpm 构建授权**：插件依赖含原生构建
-  脚本（如 `cloudflared`/`ssh2`/`cpu-features`）触发 `ERR_PNPM_IGNORED_BUILDS` 时，
-  自动把 `pnpm-workspace.yaml` 的 `allowBuilds` 占位批准为 `true` 并重试安装；安装后
-  **兜底 reconcile**——把声明了 `dsh.bundle.patch` 的依赖注册进 `dsh.profile.bundles`
-  （不再依赖 pnpm 退出码）。安装后做**插入条目冲突检测**：聚合包与单包（如
-  dsh-web-ui-all 与 dsh-client-ui-task-board）同时安装会插入同名 loader 条目导致
-  重启崩溃，安装时即给出警告并支持一键卸载（`/api/plugin-market/uninstall`）。
+- **插件安装**：搜索 GitHub `topic:dsh-plugin` 仓库后，自动检测每个仓库对应的
+  **npm 包**（读根 package.json；monorepo 探测 `packages/` 子包，免 GitHub API 限流）：
+  卡片标注 `✓ npm: <包名>` 表示该仓库有已发布的 npm 插件包，**点击「安装」直接安装
+  npm 包**（而非 GitHub 根包，避免 monorepo 根包无 `dsh.bundle` 装完不生效的坑）。
+  安装时自动处理 pnpm 构建授权（`allowBuilds` 占位自动批准 + 重试）与兜底 reconcile；
+  安装后做**插入条目冲突检测**（聚合包与单包同时装会致重启崩溃，装时即警告并可一键
+  卸载 `/api/plugin-market/uninstall`）。
 - **重启服务**：安装成功后点「重启服务」→ 进程以**非零码退出**（`exit(1)`，平台判定
   崩溃必重启；优雅退出 exit 0 可能被平台视为正常关闭而不重启）→ 容器平台自动拉起
   新实例 → 插件进入 loader 组合与 Web UI。前端在服务恢复后自动提示并引导刷新页面
