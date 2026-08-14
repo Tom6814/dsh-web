@@ -59,7 +59,13 @@ window.__ModuleLoader__.load({
 			toggleErr: '切换失败：',
 			enabledTag: '已启用',
 			disabledTag: '已停用',
-			poweredBy: '数据来源：GitHub topic:dsh-plugin；标注 ✓ npm 的仓库将直接安装对应 npm 包'
+			poweredBy: '数据来源：GitHub topic:dsh-plugin；标注 ✓ npm 的仓库将直接安装对应 npm 包',
+			exportBtn: '导出',
+			exportProject: '导出项目（zip）',
+			exportSession: '导出会话日志',
+			exporting: '打包中…',
+			exportErr: '导出失败：',
+			exportProjectDone: '项目已打包下载'
 		};
 		const en = {
 			tab: 'Plugin market',
@@ -102,7 +108,13 @@ window.__ModuleLoader__.load({
 			toggleErr: 'Toggle failed: ',
 			enabledTag: 'Enabled',
 			disabledTag: 'Disabled',
-			poweredBy: 'Source: GitHub topic:dsh-plugin; repos marked ✓ npm install their npm package directly'
+			poweredBy: 'Source: GitHub topic:dsh-plugin; repos marked ✓ npm install their npm package directly',
+			exportBtn: 'Export',
+			exportProject: 'Export project (zip)',
+			exportSession: 'Export session log',
+			exporting: 'Packing…',
+			exportErr: 'Export failed: ',
+			exportProjectDone: 'Project downloaded'
 		};
 
 		// ── 轻量样式（跟随 dsh 的 CSS 变量，自动适配明暗主题）──
@@ -335,17 +347,38 @@ window.__ModuleLoader__.load({
 			return '/preview/file/' + h;
 		}
 
+		/** 地址栏显示格式：内部 URL → 用户可读地址（127.0.0.1:端口 / file://）。 */
+		function displayUrl(internal) {
+			const u = String(internal || '');
+			let m = u.match(/^\/preview\/port\/(\d+)(\/.*)?$/);
+			if (m) return '127.0.0.1:' + m[1] + (m[2] || '/');
+			m = u.match(/^\/preview\/file\/(.*)$/);
+			if (m) return 'file://' + decodeURIComponent(m[1]);
+			return u;
+		}
+		/** 地址栏输入：用户可读地址 → 内部预览 URL。 */
+		function parseDisplayUrl(input) {
+			const v = String(input || '').trim();
+			if (!v) return v;
+			let m = v.match(/^(?:https?:\/\/)?(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})(\/.*)?$/i);
+			if (m) return '/preview/port/' + m[1] + (m[2] || '/');
+			if (/^file:\/\//i.test(v)) return '/preview/file/' + filePreviewPath(v.slice(7));
+			if (v.startsWith('/preview/')) return v;
+			return v;
+		}
+
 		// ── 对话文件提及 / 产出文件 chip 的拦截 ────────────────────────────
 		// dsh 把会话中的文件渲染为 <button title=路径 aria-label=打开…>，
-		// 官方点击会走 workspaces 文件浏览；我们改为在预览面板打开可预览类型。
-		const PREVIEW_EXT_RE = /\.(md|markdown|html?|txt|json|js|mjs|css|svg|png|jpe?g|gif|webp|ico|xml|ya?ml|pdf|py|tsx?|jsx|csv|sql|log|toml|ini|sh|go|rs|java|c|h|cpp|woff2?)$/i;
+		// 官方点击会走 workspaces 文件浏览；我们改为在预览面板打开。
+		// 策略：除明确二进制/资源类扩展外，全部放行（host 端对未知扩展做
+		// 内容嗅探：文本可预览、二进制给"下载"提示页）。
+		const PREVIEW_BIN_RE = /\.(zip|tar|gz|tgz|bz2|xz|7z|rar|exe|dll|so|dylib|class|pyc|o|a|lib|jar|war|apk|ipa|deb|rpm|msi|dmg|iso|pkg|crt|key|pem|p12|der|woff2?|ttf|otf|eot|lock|min\.map)$/i;
 
-		/** 是否为可预览的文件提及按钮。 */
+		/** 是否为可预览的文件提及按钮（除明确二进制外均可，host 嗅探兜底）。 */
 		function isPreviewableFile(title, ariaLabel) {
-			if (!PREVIEW_EXT_RE.test(title)) return false;
+			if (!title || PREVIEW_BIN_RE.test(title)) return false;
 			if (/^(打开|open)\b/i.test(ariaLabel)) return true;
-			// 兜底：部分语言文案下 aria-label 不可靠，仅对明确的文档类型放行
-			return /\.(md|markdown|html?)$/i.test(title);
+			return /\.([a-z0-9]+)$/i.test(title);
 		}
 
 		/** 把按钮 title 归一化为预览 URL 的相对/绝对路径（保留绝对路径供 host 映射）。 */
@@ -477,7 +510,8 @@ window.__ModuleLoader__.load({
 				head.appendChild(zoomLabel);
 				head.appendChild(mkBtn('＋', '放大', () => setZoom(state.zoom + 0.25)));
 				head.appendChild(mkBtn('⇱', t('previewExternal'), () => {
-					if (addr.value.trim()) window.open(addr.value.trim(), '_blank', 'noreferrer');
+					// 外开使用完整内部 URL（外部浏览器打不开容器内 localhost，必须走 dsh 域）
+					if (frame.src) window.open(frame.src, '_blank', 'noreferrer');
 				}));
 				head.appendChild(mkBtn('✕', t('previewClose'), () => { setOpen(false); }));
 				panel.insertBefore(head, panel.firstChild);
@@ -522,7 +556,7 @@ window.__ModuleLoader__.load({
 					overlay.style.display = 'none';
 					showSpinner();
 					frame.src = url;
-					addr.value = url;
+					addr.value = displayUrl(url);
 					applyLayout(true);
 					posDivider();
 					saveState({ open: true });
@@ -553,7 +587,7 @@ window.__ModuleLoader__.load({
 				addr.addEventListener('keydown', (e) => {
 					if (e.key !== 'Enter') return;
 					const v = addr.value.trim();
-					openPanel(toPreviewUrl(v) || v);
+					openPanel(parseDisplayUrl(v) || v);
 				});
 
 				// 链接/文件拦截（捕获阶段）：
@@ -649,6 +683,90 @@ window.__ModuleLoader__.load({
 					} catch { /* 面板尚未就绪时忽略 */ }
 				}
 			}, '◧ ' + t('preview'));
+		}
+
+		/**
+		* 右上角「导出」按钮：二级菜单，合并导出项目 zip 与官方 Session log 导出。
+		* - 导出项目：调 /api/plugin-market/export 打包工作区为 zip 推送浏览器下载
+		* - 导出会话日志：找到官方 Session log 按钮并点击（复用官方导出逻辑）
+		*/
+		function ExportMenuButton({ t }) {
+			const [open, setOpen] = react.useState(false);
+			const [busy, setBusy] = react.useState(false);
+			const [msg, setMsg] = react.useState(null);
+			const wrapRef = react.useRef(null);
+			react.useEffect(() => {
+				if (!open) return;
+				const close = (e) => {
+					if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+				};
+				document.addEventListener('mousedown', close);
+				return () => document.removeEventListener('mousedown', close);
+			}, [open]);
+			const toast = (text) => {
+				setMsg(text);
+				setTimeout(() => setMsg(null), 3000);
+			};
+			const exportProject = () => {
+				setBusy(true);
+				fetch('/api/plugin-market/export')
+					.then((r) => {
+						if (!r.ok) return r.json().then((j) => { throw new Error(j.error || r.status); });
+						const cd = r.headers.get('Content-Disposition') || '';
+						const m = cd.match(/filename="?([^";]+)"?/);
+						const name = m ? m[1] : 'project.zip';
+						return r.blob().then((blob) => {
+							const a = document.createElement('a');
+							a.href = URL.createObjectURL(blob);
+							a.download = name;
+							document.body.appendChild(a);
+							a.click();
+							setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+						});
+					})
+					.then(() => toast(t('exportProjectDone')))
+					.catch((e) => toast(t('exportErr') + String(e)))
+					.finally(() => { setBusy(false); setOpen(false); });
+			};
+			const exportSession = () => {
+				// 复用官方 Session log 导出：找到其按钮并触发
+				const btn = [...document.querySelectorAll('button')].find((b) => {
+					const tx = (b.textContent || '').replace(/\s+/g, '').toLowerCase();
+					return tx === 'sessionlog' || tx === '会话日志' || tx.startsWith('sessionlog');
+				});
+				if (btn) btn.click();
+				else toast(t('exportErr') + 'Session log 按钮未找到');
+				setOpen(false);
+			};
+			return react.createElement('div', { ref: wrapRef, style: { position: 'relative', display: 'inline-flex' } }, [
+				react.createElement('button', {
+					type: 'button',
+					style: Object.assign({}, S.headerBtn, open ? { background: 'var(--dsw-alias-interactive-bg-hover)' } : {}),
+					title: t('exportBtn'),
+					onClick: () => setOpen(!open)
+				}, '⇩ ' + t('exportBtn')),
+				msg ? react.createElement('div', {
+					key: 'toast',
+					style: { position: 'fixed', bottom: 20, right: 20, zIndex: 10001, background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: '8px 14px', fontSize: 12, color: 'var(--dsw-alias-label-primary)', boxShadow: '0 8px 24px rgba(0,0,0,.16)' }
+				}, msg) : null,
+				open ? react.createElement('div', {
+					key: 'menu',
+					style: { position: 'absolute', right: 0, top: 'calc(100% + 6px)', minWidth: 190, background: 'var(--dsw-alias-bg-layer-3)', border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 10, padding: 4, zIndex: 10002, boxShadow: '0 8px 24px rgba(0,0,0,.18)' }
+				}, [
+					[busy ? t('exporting') : '📦 ' + t('exportProject'), exportProject],
+					['📜 ' + t('exportSession'), exportSession]
+				].map(([label, fn], i) =>
+					react.createElement('button', {
+						key: i,
+						type: 'button',
+						disabled: busy,
+						style: { display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-primary)', fontSize: 13, font: 'inherit', cursor: 'pointer', opacity: busy ? .6 : 1 },
+						onMouseEnter: (e) => { e.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'; },
+						onMouseLeave: (e) => { e.currentTarget.style.background = 'transparent'; },
+						onClick: fn
+					}, label)
+				)) : null
+			]);
 		}
 
 		/**
@@ -763,6 +881,13 @@ window.__ModuleLoader__.load({
 				order: -10,
 				locale: NS
 			}, PreviewHeaderButton));
+			// 导出按钮（合并 Session log）：二级菜单 = 导出项目 zip / 导出会话日志
+			ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+				name: 'conversation.session.header.utilities',
+				id: 'export-menu',
+				order: -20,
+				locale: NS
+			}, ExportMenuButton));
 			// 版本标记便于诊断缓存问题
 			try { window.__DSH_PREVIEW_VERSION = '0.1.2'; } catch {}
 			ctx.effect(() => mountPreview(t), 'plugin-market: preview panel');

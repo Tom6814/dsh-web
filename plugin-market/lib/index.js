@@ -12,7 +12,7 @@
 // 挂载方式：在 cordis patch 中 insert 一行，name 指向本文件。
 import { execFile } from 'node:child_process';
 import http from 'node:http';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -974,7 +974,53 @@ export function apply(ctx) {
 					});
 					return res.end(html);
 				}
-				const type = PREVIEW_MIME[ext] ?? 'application/octet-stream';
+				const knownType = PREVIEW_MIME[ext];
+				// 未知扩展 → 内容嗅探：读文件头判断文本/二进制。
+				// 文本（无 NUL、UTF-8 可解码）→ text/plain 直接预览；
+				// 二进制 → 返回 HTML 提示页（附下载链接），不强制下载。
+				let type = knownType;
+				if (!type) {
+					const head = body.subarray(0, 8192);
+					const total = Math.min(head.length, 4096);
+					// 二进制特征：NUL 或不可打印控制字符（Tab/LF/CR 除外）
+					let ctrl = 0;
+					let utfBad = 0;
+					for (let i = 0; i < total; i++) {
+						const b = head[i];
+						if (b === 0 || (b < 0x09) || (b > 0x0d && b < 0x20)) ctrl++;
+						if (b >= 0x80) {
+							let need = 0;
+							if ((b & 0xe0) === 0xc0) need = 1;
+							else if ((b & 0xf0) === 0xe0) need = 2;
+							else if ((b & 0xf8) === 0xf0) need = 3;
+							else { utfBad++; continue; }
+							let ok = true;
+							for (let k = 1; k <= need; k++) {
+								if (i + k >= total || (head[i + k] & 0xc0) !== 0x80) { ok = false; break; }
+							}
+							if (!ok) utfBad++;
+							i += need;
+						}
+					}
+					const looksBinary = ctrl > 0 || utfBad > 4;
+					if (looksBinary) {
+						const safeName = String(target).split(sep).pop() ?? 'file';
+						const html = Buffer.from(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>二进制文件</title><style>
+							body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:14px/1.7 -apple-system,"Segoe UI","PingFang SC",sans-serif;background:#fff;color:#1f2328}
+							.box{text-align:center;padding:40px;border:1px solid #e5e7eb;border-radius:14px}
+							h2{margin:0 0 8px;font-size:16px} p{margin:0 0 16px;color:#6b7280;word-break:break-all}
+							a{color:#4d6bfe;text-decoration:none;border:1px solid #4d6bfe;border-radius:999px;padding:6px 18px;font-size:13px}
+						</style></head><body><div class="box"><h2>二进制文件</h2><p>${safeName}</p><a href="${encodeURIComponent(target)}?download=1" download>下载该文件</a></div></body></html>`, 'utf8');
+						res.writeHead(200, {
+							'Content-Type': 'text/html; charset=utf-8',
+							'Content-Length': html.length,
+							'X-Content-Type-Options': 'nosniff',
+							'Content-Security-Policy': 'sandbox'
+						});
+						return res.end(html);
+					}
+					type = 'text/plain; charset=utf-8';
+				}
 				res.writeHead(200, {
 					'Content-Type': type,
 					'Content-Length': body.length,
@@ -1005,6 +1051,117 @@ export function apply(ctx) {
 		return rules.length > 0 ? rules : [{ min: 3000, max: 9999 }];
 	})();
 	const portAllowed = (port) => allowPorts.some((r) => port >= r.min && port <= r.max);
+
+	// ── 纯 JS ZIP（STORE 无压缩）──────────────────────────────────────────
+	// 导出项目用：避免引入 archiver 依赖（镜像里无），zip 直接在响应流里
+	// 生成并返回，不落盘（用户要求 zip 不写入持久化目录）。
+	const CRC_TABLE = (() => {
+		const t = new Uint32Array(256);
+		for (let n = 0; n < 256; n++) {
+			let c = n;
+			for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+			t[n] = c >>> 0;
+		}
+		return t;
+	})();
+	function crc32(buf) {
+		let c = 0xffffffff;
+		for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+		return (c ^ 0xffffffff) >>> 0;
+	}
+	/** DOS 日期时间（zip 头格式）。 */
+	function dosDateTime(d = new Date()) {
+		const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+		const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+		return { date, time };
+	}
+	/** 把 [{path, data}] 打包为 zip（STORE）。 */
+	function zipStore(entries) {
+		const { date, time } = dosDateTime();
+		const locals = [];
+		const centrals = [];
+		let offset = 0;
+		for (const e of entries) {
+			const name = Buffer.from(e.path, 'utf8');
+			const data = e.data;
+			const crc = crc32(data);
+			const lh = Buffer.alloc(30);
+			lh.write('PK\x03\x04');
+			lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0, 6); lh.writeUInt16LE(0, 8);
+			lh.writeUInt16LE(time, 10); lh.writeUInt16LE(date, 12);
+			lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(data.length, 22);
+			lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
+			locals.push(lh, name, data);
+			const ch = Buffer.alloc(46);
+			ch.write('PK\x01\x02');
+			ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0, 8); ch.writeUInt16LE(0, 10);
+			ch.writeUInt16LE(time, 12); ch.writeUInt16LE(date, 14);
+			ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(data.length, 24);
+			ch.writeUInt16LE(name.length, 28); ch.writeUInt16LE(0, 30); ch.writeUInt16LE(0, 32);
+			ch.writeUInt16LE(0, 34); ch.writeUInt16LE(0, 36); ch.writeUInt32LE(0, 38); ch.writeUInt32LE(offset, 42);
+			centrals.push(ch, name);
+			offset += 30 + name.length + data.length;
+		}
+		const cdSize = centrals.reduce((a, b) => a + b.length, 0);
+		const eocd = Buffer.alloc(22);
+		eocd.write('PK\x05\x06');
+		eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10);
+		eocd.writeUInt32LE(cdSize, 12); eocd.writeUInt32LE(offset, 16);
+		return Buffer.concat([...locals, ...centrals, eocd]);
+	}
+
+	// ── 导出项目：把工作区打包 zip 推送浏览器下载（zip 不落盘）──────────
+	// 排除大型/无用目录，避免 zip 巨大或包含凭据类文件。
+	const EXPORT_EXCLUDE_DIRS = new Set([
+		'node_modules', '.git', '.dsh', 'dist', '.next', '.nuxt', 'build', 'out',
+		'target', '__pycache__', '.cache', '.venv', 'venv', 'coverage', '.turbo',
+		'.parcel-cache', '.idea', '.vscode', '.DS_Store', '.trash', '.tmux'
+	]);
+	const EXPORT_MAX_FILE = 50 * 1024 * 1024; // 单文件 >50MB 跳过
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/plugin-market/export',
+		handler: async (req, res) => {
+			try {
+				const root = PREVIEW_ROOTS[0];
+				if (!existsSync(root)) return sendJson(res, 404, { ok: false, error: `工作区不存在: ${root}` });
+				const files = [];
+				const walk = (dir, rel) => {
+					let names;
+					try { names = readdirSync(dir); } catch { return; }
+					for (const name of names) {
+						const p = join(dir, name);
+						const r = rel ? `${rel}/${name}` : name;
+						let st;
+						try { st = statSync(p); } catch { continue; }
+						if (st.isDirectory()) {
+							if (EXPORT_EXCLUDE_DIRS.has(name)) continue;
+							walk(p, r);
+						} else if (st.size > 0 && st.size <= EXPORT_MAX_FILE) {
+							try { files.push({ path: r, data: readFileSync(p) }); } catch { /* 单个文件失败跳过 */ }
+						}
+					}
+				};
+				walk(root, '');
+				if (files.length === 0) return sendJson(res, 200, { ok: false, error: '工作区为空，没有可导出的文件' });
+				const startedZip = Date.now();
+				const zip = zipStore(files);
+				log(`export: 文件=${files.length} 大小=${(zip.length / 1024 / 1024).toFixed(2)}MB 用时=${Date.now() - startedZip}ms（未落盘，直接响应）`);
+				const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+				const filename = `project-${stamp}.zip`;
+				res.writeHead(200, {
+					'Content-Type': 'application/zip',
+					'Content-Disposition': `attachment; filename="${filename}"`,
+					'Content-Length': zip.length,
+					'X-Content-Type-Options': 'nosniff'
+				});
+				res.end(zip);
+ 			} catch (error) {
+ 				log(`export: 异常 ${String(error?.message ?? error)}`);
+ 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+ 			}
+ 		}
+ 	});
 
 	ctx.webServer.register({
 		kind: 'prefix',
