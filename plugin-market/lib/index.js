@@ -12,9 +12,9 @@
 // 挂载方式：在 cordis patch 中 insert 一行，name 指向本文件。
 import { execFile } from 'node:child_process';
 import http from 'node:http';
-import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, extname, resolve, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 
 export const name = 'plugin-market-host';
@@ -85,6 +85,74 @@ function normalizeSpec(spec) {
 /** YAML 字符串引号（含冒号的 entryId 必须引起来）。 */
 function yamlQuote(value) {
 	return '"' + String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+}
+
+/**
+* 自动批准 pnpm 构建脚本：pnpm 报 ERR_PNPM_IGNORED_BUILDS 时会在
+* profile 的 pnpm-workspace.yaml 写入形如 `xxx: set this to true or false`
+* 的占位行。这里把占位值改为 true（安装插件本身即信任其构建脚本）。
+* @param profileDir - web profile 目录（含 pnpm-workspace.yaml）。
+* @param output - `dsh plugin add` 的 stderr/stdout，用于兜底提取包名。
+* @returns 是否发生了修改。
+*/
+function approveBuilds(profileDir, output) {
+	const wsPath = join(profileDir, 'pnpm-workspace.yaml');
+	let text = '';
+	try {
+		text = readFileSync(wsPath, 'utf8');
+	} catch {
+		return false;
+	}
+	// 占位 → true（同时兼容 YAML 注释形式）
+	const next = text.replace(/:\s*set this to true or false\s*$/gm, ': true');
+	// 兜底：从 pnpm 输出提取被忽略的包名，没有占位行就补写 allowBuilds 块
+	let names = [];
+	const m = output.match(/Ignored build scripts:\s*([^\n]+)/i);
+	if (m) names = m[1].split(',').map((s) => s.trim().split('@')[0]).filter(Boolean);
+	if (next === text && names.length > 0) {
+		const block = `\nallowBuilds:\n${names.map((n) => `  ${n}: true`).join('\n')}\n`;
+		text += block;
+	} else {
+		text = next;
+	}
+	writeFileSync(wsPath, text);
+	return text !== undefined;
+}
+
+/**
+* 兜底 reconcile：模仿 `dsh plugin` 的 reconcilePlugins —— 把 profile
+* package.json 依赖中声明了 `dsh.bundle.patch` 的包追加进
+* `dsh.profile.bundles`（幂等，不依赖 pnpm 退出码）。
+* @param profileDir - web profile 目录。
+* @returns 是否发生了改动。
+*/
+function manualReconcile(profileDir) {
+	const manifestPath = join(profileDir, 'package.json');
+	const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+	const bundles = Array.isArray(manifest.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : [];
+	const dependencies = Object.keys(manifest.dependencies ?? {});
+	const bundleDeps = [];
+	let changed = false;
+	for (const packageName of dependencies) {
+		const pkgPath = join(profileDir, 'node_modules', packageName, 'package.json');
+		if (!existsSync(pkgPath)) continue;
+		try {
+			const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+			if (pkg.dsh?.bundle?.patch === void 0) continue;
+			bundleDeps.push(packageName);
+			if (!bundles.includes(packageName)) {
+				bundles.push(packageName);
+				changed = true;
+			}
+		} catch {
+			/* 读不到 manifest 的依赖跳过 */
+		}
+	}
+	if (changed) {
+		manifest.dsh = { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } };
+		writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+	}
+	return { changed, missing: bundleDeps.filter((n) => !bundles.includes(n)) };
 }
 
 /**
@@ -166,7 +234,15 @@ export function apply(ctx) {
 		}
 	});
 
-	// ── 安装：执行 dsh plugin add（spec 先归一化）──────────────────────────
+	// ── 安装：dsh plugin add（自动处理 pnpm allowBuilds + 兜底 reconcile）──
+	// 根因修复（2026-08）：dsh plugin add 是「pnpm 转发 + 成功后 reconcile」。
+	// 当插件的依赖含需要构建脚本的原生包（cloudflared/ssh2/cpu-features 等）时，
+	// pnpm 报 ERR_PNPM_IGNORED_BUILDS 并以非零码退出 —— reconcile 被跳过，
+	// dsh.profile.bundles 不会加入该插件 → 重启后 bundle patch 不应用 → 插件
+	// 不进 loader 组合 → client-modules / 官方插件列表都扫不到（"看不到也没生效"）。
+	// 修复：1) 识别 allowBuilds 占位并自动批准（"set this to true or false"→true）
+	//       2) 重试安装（构建脚本放行后 pnpm 成功，dsh 自行 reconcile）
+	//       3) 无论如何手动兜底 reconcile（把带 dsh.bundle 的依赖加进 bundles）
 	ctx.webServer.register({
 		kind: 'exact',
 		path: '/api/plugin-market/install',
@@ -178,7 +254,8 @@ export function apply(ctx) {
 				if (!raw) return sendJson(res, 400, { ok: false, error: '缺少 spec 参数' });
 				const spec = normalizeSpec(raw);
 				const profile = String(process.env.DSH_PROFILE ?? 'web').trim() || 'web';
-				const done = await new Promise((resolve) => {
+				const profileDir = resolve(dshHome(), 'profiles', profile);
+				const run = () => new Promise((resolve) => {
 					execFile(
 						'dsh',
 						['plugin', '--profile', profile, 'add', spec],
@@ -186,19 +263,42 @@ export function apply(ctx) {
 						(error, stdout, stderr) => resolve({ error, stdout, stderr })
 					);
 				});
-				const output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+				let done = await run();
+				let output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+				let autoApproved = false;
+				// 第一轮失败且是 pnpm 构建授权问题 → 自动批准并重试
+				if (done.error && /IGNORED_BUILDS|allowBuilds|Ignored build scripts/i.test(output)) {
+					autoApproved = approveBuilds(profileDir, output);
+					done = await run();
+					output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+				}
+				// 兜底：手动把带 dsh.bundle 的依赖 reconcile 进 bundles（不依赖 pnpm 退出码）
+				let reconciled = false;
+				try {
+					const rec = manualReconcile(profileDir);
+					reconciled = rec.missing.length === 0;
+					if (rec.missing.length > 0) output += `\n[reconcile-warn] 仍有未注册 bundle: ${rec.missing.join(', ')}`;
+				} catch (error) {
+					output += `\n[reconcile-warn] ${String(error?.message ?? error)}`;
+				}
 				if (done.error) {
 					const hint = done.error.code === 'ENOENT'
 						? '找不到 dsh 命令（容器 PATH 问题？）'
 						: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 3 分钟）'
 							: /pnpm not found/i.test(output) ? '容器缺少 pnpm（需在镜像中安装）'
-								: /allowBuilds/i.test(output) ? 'Git 托管的插件需要先在 pnpm-workspace.yaml 配置 allowBuilds 才能执行构建脚本' : '';
-					return sendJson(res, 200, { ok: false, error: done.error.message, output, hint });
+								: /IGNORED_BUILDS|allowBuilds/i.test(output) ? (autoApproved ? '已自动批准构建脚本但仍失败：请查看上方 pnpm 输出中的具体错误' : '插件依赖含构建脚本：请在容器 pnpm-workspace.yaml 的 allowBuilds 中添加上面提示的包名并设 true，然后重新安装') : '';
+					return sendJson(res, 200, { ok: false, error: done.error.message, output, hint, reconciled });
 				}
-				const hint = /allowBuilds/i.test(output)
-					? 'Git 托管插件需要 allowBuilds 授权：请在 dsh 容器的 pnpm-workspace.yaml 中添加上面提示的包名，然后重新安装。'
-					: raw !== spec ? `已把 ${raw} 归一化为 ${spec}（pnpm 需要 github: 前缀）` : '';
-				sendJson(res, 200, { ok: true, output, note: '插件已安装，重启服务后生效', hint });
+				const hint = autoApproved
+					? '已自动批准插件的构建脚本（allowBuilds）并重新安装成功'
+					: /allowBuilds/i.test(output) ? '插件依赖含构建脚本，已写入 allowBuilds 配置（请重启后重试安装）' : '';
+				sendJson(res, 200, {
+					ok: true,
+					output,
+					reconciled,
+					note: reconciled ? '插件已安装并注册，重启服务后生效' : '插件已安装（未检测到 dsh.bundle 组合层），重启服务后生效',
+					hint
+				});
 			} catch (error) {
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
 			}

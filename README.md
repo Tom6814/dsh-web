@@ -75,7 +75,12 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   提示段落由 `plugins/floatboat-style` 插件以 `systemPrompt.section()` 注入（对应
   Floatboat 的 prompt-segment 机制），每段可独立关闭。
 - **插件安装**：搜索结果的安装按钮支持 `owner/repo` GitHub 简写（自动归一化为
-  `github:owner/repo` 交给 pnpm）；Git 托管的带构建脚本插件需要先在容器
-  `$DSH_HOME/profiles/web/pnpm-workspace.yaml` 配置 `allowBuilds`（安装失败时的提示会说明）。
-- **重启服务**：安装成功后点「重启服务」→ 进程退出 → 容器平台自动拉起新实例，插件生效。
-  请确保已为 `/data` 挂载持久化卷，否则重启会丢失新装的插件与会话数据。
+  `github:owner/repo` 交给 pnpm）。**自动处理 pnpm 构建授权**：插件依赖含原生构建
+  脚本（如 `cloudflared`/`ssh2`/`cpu-features`）触发 `ERR_PNPM_IGNORED_BUILDS` 时，
+  自动把 `pnpm-workspace.yaml` 的 `allowBuilds` 占位批准为 `true` 并重试安装；安装后
+  **兜底 reconcile**——把声明了 `dsh.bundle.patch` 的依赖注册进 `dsh.profile.bundles`
+  （不再依赖 pnpm 退出码）。
+- **重启服务**：安装成功后点「重启服务」→ 进程退出 → 容器平台自动拉起新实例，插件
+  进入 loader 组合与 Web UI（修复前：pnpm 非零退出导致 dsh 的 reconcile 被跳过，
+  插件装完重启后"看不到也没生效"）。请确保已为 `/data` 挂载持久化卷，否则重启会
+  丢失新装的插件与会话数据。
