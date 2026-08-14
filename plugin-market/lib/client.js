@@ -32,6 +32,11 @@ window.__ModuleLoader__.load({
 			restarting: '正在重启…',
 			restartFailed: '重启失败：',
 			restartHint: '重启后插件即可使用；页面断开属正常现象，稍等片刻刷新即可。',
+			restartDone: '服务已恢复，请刷新页面确认插件是否生效。',
+			uninstall: '卸载',
+			uninstalling: '卸载中…',
+			uninstallOk: '已卸载，重启服务后生效。',
+			uninstallErr: '卸载失败：',
 			installFailed: '安装失败：',
 			browseAll: '在 GitHub 浏览全部插件',
 			preview: '预览',
@@ -71,6 +76,11 @@ window.__ModuleLoader__.load({
 			restarting: 'Restarting…',
 			restartFailed: 'Restart failed: ',
 			restartHint: 'The plugin activates after restart. The page will disconnect briefly — wait a moment and refresh.',
+			restartDone: 'Service is back. Refresh the page to confirm the plugin.',
+			uninstall: 'Uninstall',
+			uninstalling: 'Uninstalling…',
+			uninstallOk: 'Uninstalled. Restart to complete.',
+			uninstallErr: 'Uninstall failed: ',
 			installFailed: 'Install failed: ',
 			browseAll: 'Browse all on GitHub',
 			preview: 'Preview',
@@ -107,8 +117,8 @@ window.__ModuleLoader__.load({
 			card: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', borderRadius: 10, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 },
 			cardTitle: { fontSize: 14, fontWeight: 600, lineHeight: '20px', margin: 0, overflowWrap: 'anywhere' },
 			cardDesc: { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)', margin: 0, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
-			cardMeta: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', display: 'flex', gap: 8, alignItems: 'center' },
-			cardFoot: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+			cardMeta: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0 },
+			cardFoot: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
 			link: { color: 'var(--dsw-alias-state-business-primary)', textDecoration: 'none', fontSize: 12 },
 			note: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, lineHeight: '18px', margin: 0 },
 			ok: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, lineHeight: '18px', margin: 0, overflowWrap: 'anywhere' },
@@ -194,9 +204,9 @@ window.__ModuleLoader__.load({
 				})
 					.then((r) => r.json())
 					.then((data) => {
-						setUninstallMsg(data.ok ? (data.note || '已卸载，重启服务后生效。') : ('卸载失败：' + (data.error || '')));
+						setUninstallMsg(data.ok ? (data.note || t('uninstallOk')) : (t('uninstallErr') + (data.error || '')));
 					})
-					.catch((e) => setUninstallMsg('卸载失败：' + String(e)))
+					.catch((e) => setUninstallMsg(t('uninstallErr') + String(e)))
 					.finally(() => setUninstalling(false));
 			};
 
@@ -223,36 +233,42 @@ window.__ModuleLoader__.load({
 				result && result.ok ? react.createElement('div', { key: 'ok', style: { display: 'flex', flexDirection: 'column', gap: 6 } }, [
 					react.createElement('p', { key: 'msg', style: S.ok }, t('installed')),
 					result.hint ? react.createElement('p', { key: 'hint', style: S.note }, result.hint) : null,
-					react.createElement('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
+					react.createElement('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } }, [
 						react.createElement('button', {
 							key: 'btn',
 							style: Object.assign({}, S.button, restarting ? S.buttonDisabled : {}),
 							disabled: restarting,
 							onClick: restart
 						}, restarting ? t('restarting') : t('restart')),
+						react.createElement('button', {
+							key: 'ubtn',
+							style: Object.assign({}, S.button, uninstalling ? S.buttonDisabled : {}),
+							disabled: uninstalling,
+							onClick: () => uninstall(window.__DSH_LAST_SPEC__)
+						}, uninstalling ? t('uninstalling') : t('uninstall')),
 						react.createElement('span', { key: 'hint', style: S.note }, t('restartHint'))
 					]),
 					restartError !== null ? react.createElement('p', { key: 'rerr', style: S.err }, t('restartFailed') + restartError) : null,
 					restarted ? react.createElement('div', { key: 'rdone', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
-						react.createElement('p', { key: 'msg', style: Object.assign({}, S.ok, { margin: 0 }) }, '服务已重启，插件已生效。'),
+						react.createElement('p', { key: 'msg', style: Object.assign({}, S.ok, { margin: 0 }) }, t('restartDone')),
 						react.createElement('button', { key: 'btn', style: S.button, onClick: () => location.reload() }, '刷新页面')
 					]) : null,
-					result.conflict ? react.createElement('div', { key: 'conf', style: { display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--dsw-alias-state-error-primary)', borderRadius: 8, padding: '8px 10px' } }, [
-						react.createElement('p', { key: 'msg', style: Object.assign({}, S.err, { margin: 0 }) }, result.note || '检测到 loader 条目冲突。'),
-						react.createElement('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
-							react.createElement('button', {
-								key: 'btn',
-								style: Object.assign({}, S.button, uninstalling ? S.buttonDisabled : {}),
-								disabled: uninstalling,
-								onClick: () => uninstall(window.__DSH_LAST_SPEC__)
-							}, uninstalling ? '卸载中…' : '卸载刚安装的插件'),
-							uninstallMsg ? react.createElement('span', { key: 'msg', style: S.note }, uninstallMsg) : null
-						])
-					]) : null
+					uninstallMsg ? react.createElement('p', { key: 'umsg', style: S.note }, uninstallMsg) : null
 				]) : null,
 				result && !result.ok ? react.createElement('div', { key: 'err', style: { display: 'flex', flexDirection: 'column', gap: 4 } }, [
 					react.createElement('p', { key: 'msg', style: S.err }, t('installFailed') + (result.error || '')),
+					result.note ? react.createElement('p', { key: 'note', style: S.err }, result.note) : null,
 					result.hint ? react.createElement('p', { key: 'hint', style: S.note }, result.hint) : null,
+					// 冲突/安装失败后的补救：卸载刚装的包
+					(window.__DSH_LAST_SPEC__ && (result.conflict || result.reconciled !== false || !result.error)) ? react.createElement('div', { key: 'ubtnrow', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
+						react.createElement('button', {
+							key: 'ubtn',
+							style: Object.assign({}, S.button, uninstalling ? S.buttonDisabled : {}),
+							disabled: uninstalling,
+							onClick: () => uninstall(window.__DSH_LAST_SPEC__)
+						}, uninstalling ? t('uninstalling') : t('uninstall')),
+						uninstallMsg ? react.createElement('span', { key: 'umsg', style: S.note }, uninstallMsg) : null
+					]) : null,
 					result.output ? react.createElement('pre', { key: 'out', style: { fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-secondary)', background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 8, padding: '8px 10px', overflowX: 'auto', margin: 0, maxHeight: 120, whiteSpace: 'pre-wrap', wordBreak: 'break-all' } }, result.output.slice(0, 800)) : null
 				]) : null,
 				state.status === 'loading' ? react.createElement('p', { key: 'st', style: S.status }, t('loading')) : null,
@@ -276,7 +292,7 @@ window.__ModuleLoader__.load({
 										whiteSpace: 'nowrap',
 										overflow: 'hidden',
 										textOverflow: 'ellipsis',
-										maxWidth: 200,
+										maxWidth: 150,
 										color: item.npm.hasBundle ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-state-warning-primary)',
 										border: '1px solid currentColor'
 									},
@@ -285,9 +301,9 @@ window.__ModuleLoader__.load({
 							]),
 							react.createElement('button', {
 								key: 'i',
-								style: Object.assign({}, S.button, installing !== null ? S.buttonDisabled : {}),
-								disabled: installing !== null,
-								title: item.npm?.hasBundle ? '安装 npm 包 ' + item.npm.name : (item.npm ? 'npm 包无 bundle，回退安装 GitHub 仓库' : '安装 GitHub 仓库'),
+								style: Object.assign({}, S.button, { flexShrink: 0 }, installing !== null ? S.buttonDisabled : {}),
+								disabled: installing !== null || (item.npm && !item.npm.hasBundle),
+								title: item.npm?.hasBundle ? '安装 npm 包 ' + item.npm.name : (item.npm ? '该仓库的 npm 包没有 dsh.bundle 声明，无法一键安装（需在仓库内构建）' : '安装 GitHub 仓库'),
 								onClick: () => install(item.npm?.hasBundle ? item.npm.name : item.fullName)
 							}, installing === (item.npm?.hasBundle ? item.npm.name : item.fullName) ? t('installing') : t('install'))
 						])

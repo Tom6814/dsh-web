@@ -24,8 +24,12 @@ RUN apt-get update \
 #   docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com .
 ARG NPM_REGISTRY=https://registry.npmjs.org
 
-# 全局安装 DeepSeek Harness CLI + pnpm（dsh plugin 安装插件依赖 pnpm）
-RUN npm install -g --no-fund --no-audit --registry=$NPM_REGISTRY @deepseek-ai/dsh@latest pnpm
+# 全局安装 DeepSeek Harness CLI + pnpm（dsh plugin 安装插件依赖 pnpm）。
+# ⚠️ 必须锁定 dsh 版本：dsh 处于 developer preview，官方声明"兼容性破坏随时发生"，
+# 用 @latest 会导致每次构建拉到不同版本、部署行为漂移。升级方式：
+#   npm view @deepseek-ai/dsh version 查最新 → 改下面的版本号 → 重新构建。
+ARG DSH_VERSION=0.1.0-rc.6
+RUN npm install -g --no-fund --no-audit --registry=$NPM_REGISTRY @deepseek-ai/dsh@$DSH_VERSION pnpm
 
 # dsh 的数据目录：配置文件、profile、会话都存这里。
 # 在 Zeabur 上建议把持久化存储挂载到 /data，重启后数据不丢。

@@ -57,10 +57,17 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    信任主机(自动): $H"
   fi
   if [ -n "$DSH_TRUSTED_HOSTS" ]; then
-    for h in $(printf '%s' "$DSH_TRUSTED_HOSTS" | tr ',' ' '); do
+    # IFS 逗号分割（避免 $(...) 的通配展开/分词注入，L10）
+    OLD_IFS=$IFS
+    IFS=','
+    for h in $DSH_TRUSTED_HOSTS; do
+      IFS=$OLD_IFS
+      [ -n "$h" ] || continue
       TRUSTED_FLAGS="$TRUSTED_FLAGS --trusted-host $h"
       echo "    信任主机(手动): $h"
+      IFS=','
     done
+    IFS=$OLD_IFS
   fi
 
   # ── 3. 生成 nginx 反代配置（gzip 压缩 + 插件长缓存 + SSE/WS 兼容）──

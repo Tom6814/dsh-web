@@ -32,16 +32,38 @@ const GH_SEARCH = 'https://api.github.com/search/repositories';
 const npmDshCache = new Map();
 // 仓库 → npm 包检测结果缓存（TTL 30 分钟）：GitHub API 有速率限制，必须缓存
 const repoNpmCache = new Map();
+// GitHub 搜索响应缓存（TTL 5 分钟）：GitHub search API 未认证仅 10 req/min
+const searchCache = new Map();
 
-/** npm 包是否存在于 registry（只区分存在/不存在）。 */
+/**
+* 简单并发池：限制一批 async 任务的并发数，返回各自结果。
+* @param {Array} items - 输入数组。
+* @param {number} limit - 并发上限。
+* @param {(item: any, index: number) => Promise<any>} fn - 映射函数。
+*/
+async function mapLimit(items, limit, fn) {
+	const results = new Array(items.length);
+	let next = 0;
+	async function worker() {
+		while (next < items.length) {
+			const i = next++;
+			results[i] = await fn(items[i], i);
+		}
+	}
+	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+	return results;
+}
+
+/** npm 包是否存在于 registry（只区分存在/不存在）。不存在的结果也缓存 10 分钟。 */
 async function npmExists(name) {
 	const hit = npmDshCache.get(name);
-	if (hit && Date.now() - hit.t < 10 * 60_000) return true;
+	if (hit && Date.now() - hit.t < 10 * 60_000) return hit.exists;
 	try {
 		const r = await fetch(`https://registry.npmjs.org/${encodeURIComponent(name).replace(/%2F/g, '/')}/latest`, {
 			headers: { Accept: 'application/json' },
 			signal: AbortSignal.timeout(8000)
 		});
+		npmDshCache.set(name, { exists: r.ok, t: Date.now() });
 		return r.ok;
 	} catch (error) {
 		log(`npmExists: 查询失败 ${name}: ${String(error?.cause?.message ?? error?.message ?? error)}`);
@@ -150,10 +172,13 @@ async function npmDsh(name) {
 			headers: { Accept: 'application/json' },
 			signal: AbortSignal.timeout(8000)
 		});
-		if (!r.ok) return null;
+		if (!r.ok) {
+			npmDshCache.set(name, { dsh: null, exists: false, t: Date.now() });
+			return null;
+		}
 		const j = await r.json();
 		const dsh = j.dsh ?? null;
-		npmDshCache.set(name, { dsh, t: Date.now() });
+		npmDshCache.set(name, { dsh, exists: true, t: Date.now() });
 		return dsh;
 	} catch {
 		return null;
@@ -253,8 +278,11 @@ function approveBuilds(profileDir, output) {
 	} else {
 		text = next;
 	}
-	writeFileSync(wsPath, text);
-	return text !== undefined;
+	// 原子写入（M5）：临时文件 + rename，避免写一半时进程退出留下半截 YAML
+	const tmp = wsPath + '.tmp';
+	writeFileSync(tmp, text, 'utf8');
+	renameSync(tmp, wsPath);
+	return true;
 }
 
 /**
@@ -359,9 +387,18 @@ function collectInsertIds(profileDir, bundleNames) {
 		} catch {
 			continue;
 		}
-		// 只匹配 `- insert:` 块下缩进的 `- id:`（顶层 `- id:` 是 modify/delete 目标，不算）
-		for (const block of text.matchAll(/- insert:\s*\n((?:[ \t]+- id:[^\n]*\n)+)/g)) {
-			for (const idm of block[1].matchAll(/- id:\s*([^\s#]+)/g)) {
+		// 逐行扫描（M6）：进入 `- insert:` 块后收集其缩进层级的 `- id:`，
+		// 容忍块内注释/空行/多键（比"连续 - id: 行"正则更稳）
+		const lines = text.split('\n');
+		for (let i = 0; i < lines.length; i++) {
+			if (!/^\s*-\s*insert\s*:\s*$/.test(lines[i])) continue;
+			const indent = lines[i].match(/^\s*/)[0].length;
+			for (let j = i + 1; j < lines.length; j++) {
+				const line = lines[j];
+				const cur = line.match(/^\s*/)[0].length;
+				if (cur <= indent) break; // 回到顶层条目：块结束
+				const idm = line.match(/^\s+-\s*id\s*:\s*([^\s#]+)/);
+				if (!idm) continue;
 				const id = idm[1].trim();
 				if (!id) continue;
 				if (owners.has(id) && owners.get(id) !== packageName) duplicates.set(id, [owners.get(id), packageName]);
@@ -438,15 +475,30 @@ export function apply(ctx) {
 				const url = new URL(req.url, 'http://localhost');
 				const kw = (url.searchParams.get('q') ?? '').trim();
 				const query = `topic:dsh-plugin${kw ? ` ${kw}` : ''}`;
+				// 搜索响应缓存（TTL 5 分钟）：GitHub search API 未认证仅 10 req/min
+				const cacheKey = kw;
+				const cached = searchCache.get(cacheKey);
+				if (cached && Date.now() - cached.t < 5 * 60_000) {
+					log(`gh-search: 命中缓存 q="${kw}"`);
+					return sendJson(res, 200, cached.payload);
+				}
 				const gh = await fetch(
-					`${GH_SEARCH}?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=20`,
+					`${GH_SEARCH}?q=${encodeURIComponent(query)}&sort=stars&order=desc&per_page=12`,
 					{ headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'dsh-plugin-market' } }
 				);
-				if (!gh.ok) return sendJson(res, 502, { ok: false, error: `GitHub API 返回 ${gh.status}` });
+				if (!gh.ok) {
+					// 429 限流：若有旧缓存则降级返回，否则明确报错
+					const stale = searchCache.get(cacheKey);
+					if (gh.status === 429 && stale) {
+						log(`gh-search: GitHub 限流(429)，降级返回 ${Math.floor((Date.now() - stale.t) / 1000)}s 前的缓存`);
+						return sendJson(res, 200, Object.assign({ stale: true }, stale.payload));
+					}
+					return sendJson(res, 502, { ok: false, error: `GitHub API 返回 ${gh.status}${gh.status === 429 ? '（限流，请稍等片刻再搜）' : ''}` });
+				}
 				const data = await gh.json();
 				// 对每个仓库检测对应 npm 包（带缓存）：有 npm 包时安装按钮可直接装 npm 包，
-				// 避免装到 monorepo 根包（无 dsh.bundle，装完不生效）
-				const items = await Promise.all((data.items ?? []).slice(0, 12).map(async (repo) => {
+				// 避免装到 monorepo 根包（无 dsh.bundle，装完不生效）。并发上限 5，避免瞬时打爆外部 API。
+				const items = await mapLimit(data.items ?? [], 5, async (repo) => {
 					const info = await repoNpmInfo(repo.full_name);
 					return Object.assign(toItem(repo), {
 						npm: info.npm ? {
@@ -457,9 +509,11 @@ export function apply(ctx) {
 						} : null,
 						rootName: info.rootName ?? null
 					});
-				}));
+				});
+				const payload = { ok: true, total: data.total_count, items };
+				searchCache.set(cacheKey, { payload, t: Date.now() });
 				log(`gh-search: q="${kw}" 结果=${items.length}  有 npm 包=${items.filter((x) => x.npm).length}  可一键生效=${items.filter((x) => x.npm?.hasBundle).length}`);
-				sendJson(res, 200, { ok: true, total: data.total_count, items });
+				sendJson(res, 200, payload);
 			} catch (error) {
 				log(`gh-search: 异常 ${String(error?.message ?? error)}`);
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
@@ -495,12 +549,19 @@ export function apply(ctx) {
 				// 用于判断新装包是否声明了 dsh.bundle（否则装完不生效）
 				const depsBefore = new Set(Object.keys(safeManifest(profileDir)?.dependencies ?? {}));
 				const run = () => new Promise((resolve) => {
-					execFile(
+					// detached + 进程组 SIGKILL：execFile 的 timeout 只杀主进程，
+					// dsh→pnpm→git 的子进程树会继续跑并占住 stdout 流，导致回调
+					// 迟迟不触发（实测 GitHub 安装可卡 9 分钟）。这里手动定时杀整组。
+					const child = execFile(
 						'dsh',
 						['plugin', '--profile', profile, 'add', spec],
-						{ cwd: process.cwd(), env: process.env, timeout: 300_000, maxBuffer: 8 * 1024 * 1024 },
+						{ cwd: process.cwd(), env: process.env, detached: true, maxBuffer: 8 * 1024 * 1024 },
 						(error, stdout, stderr) => resolve({ error, stdout, stderr })
 					);
+					const killer = setTimeout(() => {
+						try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 已退出 */ }
+					}, 300_000);
+					child.on('exit', () => clearTimeout(killer));
 				});
 				let done = await run();
 				let output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
@@ -534,9 +595,10 @@ export function apply(ctx) {
 				if (done.error) {
 					const hint = done.error.code === 'ENOENT'
 						? '找不到 dsh 命令（容器 PATH 问题？）'
-						: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 5 分钟）'
-							: /pnpm not found/i.test(output) ? '容器缺少 pnpm（需在镜像中安装）'
-								: /IGNORED_BUILDS|allowBuilds/i.test(output) ? (autoApproved ? '已自动批准构建脚本但仍失败：请查看上方 pnpm 输出中的具体错误' : '插件依赖含构建脚本：请在容器 pnpm-workspace.yaml 的 allowBuilds 中添加上面提示的包名并设 true，然后重新安装') : '';
+						: done.error.signal === 'SIGKILL' ? '安装超时（超过 5 分钟，已终止）：GitHub 仓库安装较慢（需 clone+构建），若该仓库有 npm 包请优先安装 npm 包'
+							: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 5 分钟）'
+								: /pnpm not found/i.test(output) ? '容器缺少 pnpm（需在镜像中安装）'
+									: /IGNORED_BUILDS|allowBuilds/i.test(output) ? (autoApproved ? '已自动批准构建脚本但仍失败：请查看上方 pnpm 输出中的具体错误' : '插件依赖含构建脚本：请在容器 pnpm-workspace.yaml 的 allowBuilds 中添加上面提示的包名并设 true，然后重新安装') : '';
 					log(`install: 失败 用时=${Date.now() - startedAt}ms  error=${done.error.message}  hint=${hint}`);
 					log(`install: 输出尾部\n${output.split('\n').slice(-25).join('\n')}`);
 					return sendJson(res, 200, { ok: false, error: done.error.message, output, hint, reconciled });
@@ -561,9 +623,10 @@ export function apply(ctx) {
 				if (conflict.size > 0) {
 					const lines = [...conflict.entries()].map(([id, pkgs]) => `${id}（${pkgs.join(' 与 ')}）`).join('；');
 					log(`install: ⚠️ 检测到 loader 条目冲突: ${lines}`);
-					const conflictNote = `警告：检测到 loader 条目冲突（${lines}）。两个插件都向组合插入了同名条目，重启会导致服务崩溃。请先在插件列表卸载其中一个（聚合包与单包不要同时安装），再重启。`;
+					const conflictNote = `警告：检测到 loader 条目冲突（${lines}）。两个插件都向组合插入了同名条目，重启会导致服务崩溃。请先卸载其中一个（聚合包与单包不要同时安装），再重启。`;
 					return sendJson(res, 200, {
-						ok: true,
+						ok: false,
+						error: `loader 条目冲突：${lines}`,
 						output,
 						reconciled,
 						conflict: true,
@@ -605,6 +668,8 @@ export function apply(ctx) {
 	});
 
 	// ── 卸载：dsh plugin remove（含自动 reconcile，移除 bundle 层）──────────
+	// spec 可能是 npm 包名（@scope/name）或 GitHub 简写（owner/repo、github:owner/repo）；
+	// pnpm remove 只认真实包名，因此先从 profile dependencies 解析实际包名再卸载。
 	ctx.webServer.register({
 		kind: 'exact',
 		path: '/api/plugin-market/uninstall',
@@ -616,14 +681,35 @@ export function apply(ctx) {
 				if (!spec) return sendJson(res, 400, { ok: false, error: '缺少 spec 参数' });
 				const profile = String(process.env.DSH_PROFILE ?? 'web').trim() || 'web';
 				const profileDir = resolve(dshHome(), 'profiles', profile);
-				log(`uninstall: 开始  spec=${spec}  profile=${profile}`);
+				// spec → 真实包名：精确匹配依赖名 → GitHub 简写匹配依赖值 → 名称包含匹配
+				const manifest = safeManifest(profileDir) ?? {};
+				const deps = manifest.dependencies ?? {};
+				const depNames = Object.keys(deps);
+				let pkgName = depNames.includes(spec) ? spec : null;
+				if (!pkgName) {
+					const ghTail = spec.replace(/^github:/, '');
+					pkgName = depNames.find((n) => String(deps[n]).includes(ghTail)) ?? null;
+				}
+				if (!pkgName) {
+					const tail = spec.split('/').pop() ?? '';
+					pkgName = tail ? depNames.find((n) => n === tail || n.endsWith('/' + tail) || n === '@' + tail) ?? null : null;
+				}
+				if (!pkgName) {
+					log(`uninstall: 未在依赖中找到与 ${spec} 匹配的包（现有: ${depNames.join(', ') || '无'}）`);
+					return sendJson(res, 404, { ok: false, error: `未找到已安装的包 ${spec}`, hint: `已安装依赖：${depNames.join(', ') || '无'}` });
+				}
+				log(`uninstall: 开始  spec=${spec} -> 包名=${pkgName}  profile=${profile}`);
 				const done = await new Promise((resolve) => {
-					execFile(
+					const child = execFile(
 						'dsh',
-						['plugin', '--profile', profile, 'remove', spec],
-						{ cwd: process.cwd(), env: process.env, timeout: 180_000, maxBuffer: 4 * 1024 * 1024 },
+						['plugin', '--profile', profile, 'remove', pkgName],
+						{ cwd: process.cwd(), env: process.env, detached: true, maxBuffer: 4 * 1024 * 1024 },
 						(error, stdout, stderr) => resolve({ error, stdout, stderr })
 					);
+					const killer = setTimeout(() => {
+						try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 已退出 */ }
+					}, 180_000);
+					child.on('exit', () => clearTimeout(killer));
 				});
 				const output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
 				log(`uninstall: 完成 code=${done.error?.code ?? 0}`);
@@ -633,7 +719,7 @@ export function apply(ctx) {
 				}
 				manualReconcile(profileDir); // 兜底清理（幂等）
 				log(`uninstall: 成功  bundles=${JSON.stringify(safeBundles(profileDir))}`);
-				sendJson(res, 200, { ok: true, output, note: '已卸载，重启服务后生效' });
+				sendJson(res, 200, { ok: true, output, note: `已卸载 ${pkgName}，重启服务后生效` });
 			} catch (error) {
 				log(`uninstall: 异常 ${String(error?.message ?? error)}`);
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
@@ -733,6 +819,11 @@ export function apply(ctx) {
 		...(extraRootsEnv === '' ? [] : extraRootsEnv.split(',').map((s) => s.trim()).filter(Boolean).map(resolveRoot))
 	];
 	if (extraRootsEnv === '') PREVIEW_ROOTS.push(resolveRoot(tmpdir()), resolveRoot('/tmp'));
+	// 去重（容器中 tmpdir() === /tmp 会重复）
+	for (let i = 0; i < PREVIEW_ROOTS.length; i++) {
+		const j = PREVIEW_ROOTS.indexOf(PREVIEW_ROOTS[i]);
+		if (j !== i) PREVIEW_ROOTS.splice(i, 1);
+	}
 
 	const PREVIEW_MIME = {
 		'.html': 'text/html; charset=utf-8',
@@ -869,12 +960,17 @@ export function apply(ctx) {
 				if (target === null) return sendJson(res, 403, { ok: false, error: '路径越界' });
 				const body = await readFile(target);
 				const ext = extname(target).toLowerCase();
+				// 工作区 HTML 预览默认按沙箱处理（L7/H1）：不带 allow-same-origin，
+				// 即使 iframe 属性含 allow-same-origin 也被 CSP 降级为不透明源，
+				// 预览的恶意 HTML 无法读写 dsh 主页面。渲染型（MD→HTML）同样受保护。
+				const CSP_SANDBOX = 'sandbox allow-scripts allow-forms allow-popups allow-downloads';
 				if (ext === '.md' || ext === '.markdown') {
 					const html = Buffer.from(MD_SHELL(renderMarkdown(body.toString('utf8'))), 'utf8');
 					res.writeHead(200, {
 						'Content-Type': 'text/html; charset=utf-8',
 						'Content-Length': html.length,
-						'X-Content-Type-Options': 'nosniff'
+						'X-Content-Type-Options': 'nosniff',
+						'Content-Security-Policy': CSP_SANDBOX
 					});
 					return res.end(html);
 				}
@@ -882,7 +978,8 @@ export function apply(ctx) {
 				res.writeHead(200, {
 					'Content-Type': type,
 					'Content-Length': body.length,
-					'X-Content-Type-Options': 'nosniff'
+					'X-Content-Type-Options': 'nosniff',
+					...(type.startsWith('text/html') ? { 'Content-Security-Policy': CSP_SANDBOX } : {})
 				});
 				res.end(body);
 			} catch (error) {
@@ -892,6 +989,23 @@ export function apply(ctx) {
 	});
 
 	// ── 预览：容器内端口 HTTP 反代（WebSocket 由 nginx 的 /preview/port 处理）──
+	// 端口白名单（H3）：默认仅允许 3000-9999 的 dev server 常用区间，防止任意
+	// 端口被探测（SSRF 型）。可用 PREVIEW_ALLOW_PORTS 覆盖，格式：
+	//   "3000-9999"（区间）或 "5173,8080"（列表）或混合 "5173,8000-9000"。
+	const allowPorts = (() => {
+		const raw = String(process.env.PREVIEW_ALLOW_PORTS ?? '3000-9999').trim();
+		const rules = [];
+		for (const part of raw.split(',')) {
+			const p = part.trim();
+			if (!p) continue;
+			const m = /^(\d+)\s*-\s*(\d+)$/.exec(p);
+			if (m) rules.push({ min: Number(m[1]), max: Number(m[2]) });
+			else if (/^\d+$/.test(p)) rules.push({ min: Number(p), max: Number(p) });
+		}
+		return rules.length > 0 ? rules : [{ min: 3000, max: 9999 }];
+	})();
+	const portAllowed = (port) => allowPorts.some((r) => port >= r.min && port <= r.max);
+
 	ctx.webServer.register({
 		kind: 'prefix',
 		path: '/preview/port',
@@ -904,6 +1018,10 @@ export function apply(ctx) {
 				const port = Number(portText);
 				if (!Number.isInteger(port) || port < 1 || port > 65535) {
 					return sendJson(res, 400, { ok: false, error: '端口无效' });
+				}
+				if (!portAllowed(port)) {
+					log(`preview/port: 拒绝端口 ${port}（不在白名单 ${process.env.PREVIEW_ALLOW_PORTS ?? '3000-9999'}）`);
+					return sendJson(res, 403, { ok: false, error: `端口 ${port} 不在预览白名单内（可用 PREVIEW_ALLOW_PORTS 配置）` });
 				}
 				const targetPath = slash < 0 ? '/' : rest.slice(slash);
 				const headers = { ...req.headers };

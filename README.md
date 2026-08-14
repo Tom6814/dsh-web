@@ -16,12 +16,14 @@ docker build -t dsh-web .
 docker run -d --name dsh \
   -p 8080:8080 \
   -e PORT=8080 \
-  -e DEEPSEEK_API_KEY=sk-xxx \
   -v dsh-data:/data \
   dsh-web
 
 # 浏览器打开 http://localhost:8080
 ```
+
+> 💡 **DeepSeek API Key 在网页里配置**：首次打开后进入「设置 → 模型」填入
+> `DEEPSEEK_API_KEY`（dsh 把密钥保存在配置文件中，不通过环境变量注入）。
 
 > ⚠️ **务必挂载持久化目录**：`-v dsh-data:/data` 将数据卷挂载到容器 `/data`，
 > 用于保存 dsh 的配置、工作区、会话记录和安装的插件。**不挂载的话，容器重建后这些数据会全部丢失。**
@@ -40,10 +42,12 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `DEEPSEEK_API_KEY` | — | **必填**，DeepSeek 官方 API Key |
+| `DEEPSEEK_API_KEY` | — | **在网页「设置 → 模型」中配置**，不通过环境变量注入 |
 | `PORT` | `8080` | 对外端口 |
 | `DSH_HOME` | `/data/dsh` | dsh 数据目录（即持久化卷挂载点 `/data`） |
 | `DSH_TRUSTED_HOSTS` | — | 额外信任的主机（逗号分隔），通过域名访问时使用 |
+| `PREVIEW_ALLOW_PORTS` | `3000-9999` | 预览面板可反代的容器内端口白名单（如 `5173,8000-9000`），防止任意端口探测 |
+| `PREVIEW_EXTRA_ROOTS` | — | 预览可读的额外根目录（逗号分隔），默认含 `/tmp` |
 
 ## 项目结构
 
@@ -73,7 +77,8 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   （文件最小变更/来源可信度/浏览器与检索选择/凭据处理）、交付真实性契约（不虚构产物）、
   安全边界（防套取/防泄露）与委派记忆纪律。基于官方 standard preset，工具能力完全一致；
   提示段落由 `plugins/floatboat-style` 插件以 `systemPrompt.section()` 注入（对应
-  Floatboat 的 prompt-segment 机制），每段可独立关闭。
+  Floatboat 的 prompt-segment 机制），每段可独立关闭。⚠️ 该 preset **依赖
+  `dsh-floatboat-style` 插件**（镜像已内置），单独复制 preset 到未装插件的环境会挂载失败。
 - **插件安装**：搜索 GitHub `topic:dsh-plugin` 仓库后，自动检测每个仓库对应的
   **npm 包**（读根 package.json；monorepo 探测 `packages/` 子包，免 GitHub API 限流）：
   卡片标注 `✓ npm: <包名>` 表示该仓库有已发布的 npm 插件包，**点击「安装」直接安装
