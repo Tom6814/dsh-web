@@ -79,8 +79,14 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   脚本（如 `cloudflared`/`ssh2`/`cpu-features`）触发 `ERR_PNPM_IGNORED_BUILDS` 时，
   自动把 `pnpm-workspace.yaml` 的 `allowBuilds` 占位批准为 `true` 并重试安装；安装后
   **兜底 reconcile**——把声明了 `dsh.bundle.patch` 的依赖注册进 `dsh.profile.bundles`
-  （不再依赖 pnpm 退出码）。
-- **重启服务**：安装成功后点「重启服务」→ 进程退出 → 容器平台自动拉起新实例，插件
-  进入 loader 组合与 Web UI（修复前：pnpm 非零退出导致 dsh 的 reconcile 被跳过，
-  插件装完重启后"看不到也没生效"）。请确保已为 `/data` 挂载持久化卷，否则重启会
-  丢失新装的插件与会话数据。
+  （不再依赖 pnpm 退出码）。安装后做**插入条目冲突检测**：聚合包与单包（如
+  dsh-web-ui-all 与 dsh-client-ui-task-board）同时安装会插入同名 loader 条目导致
+  重启崩溃，安装时即给出警告并支持一键卸载（`/api/plugin-market/uninstall`）。
+- **重启服务**：安装成功后点「重启服务」→ 进程以**非零码退出**（`exit(1)`，平台判定
+  崩溃必重启；优雅退出 exit 0 可能被平台视为正常关闭而不重启）→ 容器平台自动拉起
+  新实例 → 插件进入 loader 组合与 Web UI。前端在服务恢复后自动提示并引导刷新页面
+  （index.html 已禁缓存，保证新插件入口图 `__DSH_BOOT__` 重新拉取）。请确保已为
+  `/data` 挂载持久化卷，否则重启会丢失新装的插件与会话数据。
+- **排查日志**：插件市场所有操作（install/uninstall/toggle/restart）都以
+  `[plugin-market]` 前缀输出详细日志（spec、profile 路径、pnpm 输出、allowBuilds
+  处理、bundles 现状、冲突检测结果），在 Zeabur 日志面板可直接 grep 定位问题。

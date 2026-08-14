@@ -132,6 +132,17 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # index.html 禁止缓存：重启后 __DSH_BOOT__（插件入口图）会变化，
+    # 必须每次重新拉取，否则浏览器加载旧页面会"看不到新装的插件"
+    location = / {
+        proxy_pass http://127.0.0.1:__LISTEN__;
+        proxy_http_version 1.1;
+        proxy_set_header Host 127.0.0.1:__LISTEN__;
+        proxy_set_header Origin http://127.0.0.1:__LISTEN__;
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        proxy_read_timeout 60s;
+    }
+
     # 其余（index.html / api JSON 等）：gzip 压缩
     location / {
         proxy_pass http://127.0.0.1:__LISTEN__;

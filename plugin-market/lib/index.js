@@ -20,6 +20,12 @@ import { homedir, tmpdir } from 'node:os';
 export const name = 'plugin-market-host';
 export const inject = ['webServer', 'loader'];
 
+// ── 日志：统一前缀，便于在容器日志中 grep 排查 ──
+// dsh 的 stdout 会进入容器日志（Zeabur 日志面板可直接看到）。
+function log(...args) {
+	console.log('[plugin-market]', ...args);
+}
+
 const GH_SEARCH = 'https://api.github.com/search/repositories';
 
 // ── dsh 数据目录解析（与 @deepseek-ai/dsh-home-paths 的 resolveDshHome 一致）──
@@ -155,6 +161,67 @@ function manualReconcile(profileDir) {
 	return { changed, missing: bundleDeps.filter((n) => !bundles.includes(n)) };
 }
 
+/** 限制字符串长度，避免日志刷屏（保留首尾）。 */
+function safeTail(text, max = 2000) {
+	const s = String(text ?? '');
+	if (s.length <= max) return s;
+	return `…[截断 ${s.length - max} 字符]…\n${s.slice(-max)}`;
+}
+
+/** 读取 profile 当前的 bundles 层列表（用于日志与诊断）。 */
+function safeBundles(profileDir) {
+	try {
+		const manifest = JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'));
+		return Array.isArray(manifest.dsh?.profile?.bundles) ? manifest.dsh.profile.bundles : [];
+	} catch {
+		return [];
+	}
+}
+
+/**
+* 收集所有已注册 bundle 包在其 patch 文件中 `- insert:` 的条目 id，
+* 用于冲突检测：两个 bundle 插入同名 id 会让 loader 在 boot 时抛
+* `duplicate loader entry id` 并崩溃（crash loop）。典型场景：先装聚合包
+* dsh-web-ui-all（内含 ui-task-board 等），再单独装 dsh-client-ui-task-board。
+* @param profileDir - web profile 目录。
+* @param bundleNames - 要扫描的 bundle 包名列表。
+* @returns Map<insertId, 包名>；同 id 被多个包声明时保留首个并计入重复。
+*/
+function collectInsertIds(profileDir, bundleNames) {
+	const owners = new Map();
+	const duplicates = new Map();
+	for (const packageName of bundleNames) {
+		const pkgPath = join(profileDir, 'node_modules', packageName, 'package.json');
+		if (!existsSync(pkgPath)) continue;
+		let pkg;
+		try {
+			pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+		} catch {
+			continue;
+		}
+		const patchRel = pkg.dsh?.bundle?.patch;
+		if (typeof patchRel !== 'string') continue;
+		const patchPath = join(profileDir, 'node_modules', packageName, patchRel);
+		if (!existsSync(patchPath)) continue;
+		let text;
+		try {
+			text = readFileSync(patchPath, 'utf8');
+		} catch {
+			continue;
+		}
+		// 只匹配 `- insert:` 块下缩进的 `- id:`（顶层 `- id:` 是 modify/delete 目标，不算）
+		for (const block of text.matchAll(/- insert:\s*\n((?:[ \t]+- id:[^\n]*\n)+)/g)) {
+			for (const idm of block[1].matchAll(/- id:\s*([^\s#]+)/g)) {
+				const id = idm[1].trim();
+				if (!id) continue;
+				if (owners.has(id) && owners.get(id) !== packageName) duplicates.set(id, [owners.get(id), packageName]);
+				else if (!owners.has(id)) owners.set(id, packageName);
+			}
+		}
+	}
+	return { owners, duplicates };
+}
+
 /**
 * 在用户补丁层写入/更新一条 `{ id, disabled }` 覆盖：
 * 逐行定位 `- id: <entryId>` 块并保留同块其它键（name/config 等），
@@ -247,6 +314,7 @@ export function apply(ctx) {
 		kind: 'exact',
 		path: '/api/plugin-market/install',
 		handler: async (req, res) => {
+			const startedAt = Date.now();
 			try {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
 				const body = JSON.parse((await readBody(req)) || '{}');
@@ -255,43 +323,76 @@ export function apply(ctx) {
 				const spec = normalizeSpec(raw);
 				const profile = String(process.env.DSH_PROFILE ?? 'web').trim() || 'web';
 				const profileDir = resolve(dshHome(), 'profiles', profile);
+				log(`install: 开始  spec=${raw} -> ${spec}  profile=${profile}  profileDir=${profileDir}`);
+				log(`install: 环境  DSH_HOME=${process.env.DSH_HOME ?? '(未设置，默认 ~/.dsh)'}  cwd=${process.cwd()}  node=${process.version}`);
 				const run = () => new Promise((resolve) => {
 					execFile(
 						'dsh',
 						['plugin', '--profile', profile, 'add', spec],
-						{ cwd: process.cwd(), env: process.env, timeout: 180_000, maxBuffer: 4 * 1024 * 1024 },
+						{ cwd: process.cwd(), env: process.env, timeout: 300_000, maxBuffer: 8 * 1024 * 1024 },
 						(error, stdout, stderr) => resolve({ error, stdout, stderr })
 					);
 				});
 				let done = await run();
 				let output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+				log(`install: 第一轮完成 code=${done.error?.code ?? 0} errno=${done.error?.errno ?? ''} allowBuilds问题=${/IGNORED_BUILDS|allowBuilds|Ignored build scripts/i.test(output)}`);
 				let autoApproved = false;
 				// 第一轮失败且是 pnpm 构建授权问题 → 自动批准并重试
 				if (done.error && /IGNORED_BUILDS|allowBuilds|Ignored build scripts/i.test(output)) {
+					const names = [...output.matchAll(/Ignored build scripts:\s*([^\n]+)/gi)].flatMap((m) => m[1].split(',').map((s) => s.trim().split('@')[0]).filter(Boolean));
+					log(`install: 检测到 pnpm 构建授权问题，自动批准 allowBuilds: ${names.join(', ') || '(占位符形式)'}`);
 					autoApproved = approveBuilds(profileDir, output);
+					const wsPath = join(profileDir, 'pnpm-workspace.yaml');
+					const wsInfo = existsSync(wsPath)
+						? readFileSync(wsPath, 'utf8').split('\n').filter((l) => l.includes('allowBuilds') || /^\s+[a-z0-9_-]+:/.test(l)).join('\n')
+						: '(pnpm-workspace.yaml 不存在)';
+					log(`install: approveBuilds 修改=${autoApproved}  allowBuilds 现状:\n${wsInfo}`);
 					done = await run();
 					output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+					log(`install: 重试完成 code=${done.error?.code ?? 0}`);
 				}
 				// 兜底：手动把带 dsh.bundle 的依赖 reconcile 进 bundles（不依赖 pnpm 退出码）
 				let reconciled = false;
 				try {
 					const rec = manualReconcile(profileDir);
 					reconciled = rec.missing.length === 0;
+					log(`install: manualReconcile changed=${rec.changed} missing=${rec.missing.length ? rec.missing.join(',') : '无'}`);
 					if (rec.missing.length > 0) output += `\n[reconcile-warn] 仍有未注册 bundle: ${rec.missing.join(', ')}`;
 				} catch (error) {
+					log(`install: manualReconcile 异常: ${String(error?.message ?? error)}`);
 					output += `\n[reconcile-warn] ${String(error?.message ?? error)}`;
 				}
 				if (done.error) {
 					const hint = done.error.code === 'ENOENT'
 						? '找不到 dsh 命令（容器 PATH 问题？）'
-						: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 3 分钟）'
+						: done.error.code === 'ETIMEDOUT' ? '安装超时（超过 5 分钟）'
 							: /pnpm not found/i.test(output) ? '容器缺少 pnpm（需在镜像中安装）'
 								: /IGNORED_BUILDS|allowBuilds/i.test(output) ? (autoApproved ? '已自动批准构建脚本但仍失败：请查看上方 pnpm 输出中的具体错误' : '插件依赖含构建脚本：请在容器 pnpm-workspace.yaml 的 allowBuilds 中添加上面提示的包名并设 true，然后重新安装') : '';
+					log(`install: 失败 用时=${Date.now() - startedAt}ms  error=${done.error.message}  hint=${hint}`);
+					log(`install: 输出尾部\n${output.split('\n').slice(-25).join('\n')}`);
 					return sendJson(res, 200, { ok: false, error: done.error.message, output, hint, reconciled });
 				}
 				const hint = autoApproved
 					? '已自动批准插件的构建脚本（allowBuilds）并重新安装成功'
 					: /allowBuilds/i.test(output) ? '插件依赖含构建脚本，已写入 allowBuilds 配置（请重启后重试安装）' : '';
+				log(`install: 成功 用时=${Date.now() - startedAt}ms  reconciled=${reconciled}  autoApproved=${autoApproved}`);
+				const bundles = safeBundles(profileDir);
+				log(`install: bundles 现状=${JSON.stringify(bundles)}`);
+				// 冲突检测：两个 bundle 插入同名 loader 条目会导致 boot 崩溃（crash loop）
+				const conflict = collectInsertIds(profileDir, bundles).duplicates;
+				if (conflict.size > 0) {
+					const lines = [...conflict.entries()].map(([id, pkgs]) => `${id}（${pkgs.join(' 与 ')}）`).join('；');
+					log(`install: ⚠️ 检测到 loader 条目冲突: ${lines}`);
+					const conflictNote = `警告：检测到 loader 条目冲突（${lines}）。两个插件都向组合插入了同名条目，重启会导致服务崩溃。请先在插件列表卸载其中一个（聚合包与单包不要同时安装），再重启。`;
+					return sendJson(res, 200, {
+						ok: true,
+						output,
+						reconciled,
+						conflict: true,
+						note: conflictNote,
+						hint
+					});
+				}
 				sendJson(res, 200, {
 					ok: true,
 					output,
@@ -300,6 +401,44 @@ export function apply(ctx) {
 					hint
 				});
 			} catch (error) {
+				log(`install: 异常 ${String(error?.message ?? error)} 用时=${Date.now() - startedAt}ms`);
+				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
+			}
+		}
+	});
+
+	// ── 卸载：dsh plugin remove（含自动 reconcile，移除 bundle 层）──────────
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/plugin-market/uninstall',
+		handler: async (req, res) => {
+			try {
+				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
+				const body = JSON.parse((await readBody(req)) || '{}');
+				const spec = String(body.spec ?? '').trim();
+				if (!spec) return sendJson(res, 400, { ok: false, error: '缺少 spec 参数' });
+				const profile = String(process.env.DSH_PROFILE ?? 'web').trim() || 'web';
+				const profileDir = resolve(dshHome(), 'profiles', profile);
+				log(`uninstall: 开始  spec=${spec}  profile=${profile}`);
+				const done = await new Promise((resolve) => {
+					execFile(
+						'dsh',
+						['plugin', '--profile', profile, 'remove', spec],
+						{ cwd: process.cwd(), env: process.env, timeout: 180_000, maxBuffer: 4 * 1024 * 1024 },
+						(error, stdout, stderr) => resolve({ error, stdout, stderr })
+					);
+				});
+				const output = `${done.stdout ?? ''}\n${done.stderr ?? ''}`.trim();
+				log(`uninstall: 完成 code=${done.error?.code ?? 0}`);
+				if (done.error) {
+					log(`uninstall: 失败 ${done.error.message}\n${output.split('\n').slice(-10).join('\n')}`);
+					return sendJson(res, 200, { ok: false, error: done.error.message, output });
+				}
+				manualReconcile(profileDir); // 兜底清理（幂等）
+				log(`uninstall: 成功  bundles=${JSON.stringify(safeBundles(profileDir))}`);
+				sendJson(res, 200, { ok: true, output, note: '已卸载，重启服务后生效' });
+			} catch (error) {
+				log(`uninstall: 异常 ${String(error?.message ?? error)}`);
 				sendJson(res, 500, { ok: false, error: String(error?.message ?? error) });
 			}
 		}
@@ -352,6 +491,7 @@ export function apply(ctx) {
 				const enabled = !entry.disabled;
 				const nextEnabled = !enabled;
 				const nextDisabled = !nextEnabled;
+				log(`toggle: entry=${entryId} ${enabled ? '启用' : '停用'} -> ${nextEnabled ? '启用' : '停用'}  module=${entry.options.name}`);
 				// 补丁行 id 必须用原始 options.id（loader 的 applyEntryPatches 按
 				// 原始 id 建索引；带前缀的计算 id 如 include:xxx 匹配不上会被跳过）
 				const patchId = entry.options.id || entryId;
@@ -597,27 +737,21 @@ export function apply(ctx) {
 		}
 	});
 
-	// ── 重启服务：插件安装后一键生效（SIGTERM 优雅退出 → 容器自动重启）──
-	// SIGTERM 若被吞掉（进程未退），3 秒后以非零码强制退出，平台必重启。
+	// ── 重启服务：插件安装后一键生效 ──────────────────────────────────────
+	// 关键点：必须以「非零退出码」终止，容器平台才会判定为崩溃并自动拉起新实例。
+	// SIGTERM 优雅退出若以 0 退出（或退出码被吞），平台可能视为「正常关闭」而不重启，
+	// 导致插件 bundle 层永远不重新装载（表现：重启后插件依然不生效）。
+	// 因此这里不依赖 SIGTERM 的优雅路径：响应返回后延时直接 process.exit(1)。
 	ctx.webServer.register({
 		kind: 'exact',
 		path: '/api/plugin-market/restart',
 		handler: async (req, res) => {
 			if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '需要 POST' });
+			log('restart: 收到重启请求，600ms 后强制 exit(1)（非零退出，平台必重启）');
 			sendJson(res, 200, { ok: true, note: '正在重启服务…' });
 			setTimeout(() => {
-				try {
-					process.kill(process.pid, 'SIGTERM');
-				} catch {
-					/* 进程已退出或信号不支持 */
-				}
-				setTimeout(() => {
-					try {
-						process.exit(1);
-					} catch {
-						/* 忽略 */
-					}
-				}, 2500);
+				log('restart: 执行 process.exit(1)');
+				process.exit(1);
 			}, 600);
 		}
 	});

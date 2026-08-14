@@ -124,6 +124,9 @@ window.__ModuleLoader__.load({
 			const [result, setResult] = useState(null);
 			const [restarting, setRestarting] = useState(false);
 			const [restartError, setRestartError] = useState(null);
+			const [restarted, setRestarted] = useState(false);
+			const [uninstalling, setUninstalling] = useState(false);
+			const [uninstallMsg, setUninstallMsg] = useState(null);
 
 			const search = useCallback((kw) => {
 				setState({ status: 'loading', items: [], error: null });
@@ -142,6 +145,8 @@ window.__ModuleLoader__.load({
 				setInstalling(spec);
 				setResult(null);
 				setRestartError(null);
+				setUninstallMsg(null);
+				window.__DSH_LAST_SPEC__ = spec;
 				fetch('/api/plugin-market/install', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
@@ -153,17 +158,46 @@ window.__ModuleLoader__.load({
 					.finally(() => setInstalling(null));
 			};
 
-			/** 重启服务：dsh 进程退出（SIGTERM，超时强杀），容器自动重启后新插件生效。 */
+			/** 重启服务：dsh 进程以非零码退出 → 容器平台自动拉起新实例。 */
 			const restart = () => {
 				setRestarting(true);
 				setRestartError(null);
+				setRestarted(false);
 				fetch('/api/plugin-market/restart', { method: 'POST' })
 					.then((r) => r.json())
 					.then((data) => {
-						if (!data.ok) { setRestartError(data.error || String(data)); setRestarting(false); }
-						// 成功时服务即将退出，页面会断开；无需再做任何事
+						if (!data.ok) { setRestartError(data.error || String(data)); setRestarting(false); return; }
+						// 服务即将退出；轮询直到新实例恢复，然后提示刷新页面
+						const started = Date.now();
+						const poll = () => {
+							fetch('/api/plugin-market/list', { method: 'GET' })
+								.then((r) => r.json())
+								.then(() => { setRestarting(false); setRestarted(true); })
+								.catch(() => {
+									if (Date.now() - started < 120000) setTimeout(poll, 3000);
+									else { setRestarting(false); setRestartError('等待服务恢复超时，请手动刷新页面后查看'); }
+								});
+						};
+						setTimeout(poll, 4000);
 					})
-					.catch(() => { /* 连接断开即重启已触发，属预期 */ });
+					.catch(() => { /* 连接断开即重启已触发，属预期；继续轮询 */ });
+			};
+
+			/** 卸载插件（冲突修复/清理时使用）。 */
+			const uninstall = (spec) => {
+				setUninstalling(true);
+				setUninstallMsg(null);
+				fetch('/api/plugin-market/uninstall', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ spec })
+				})
+					.then((r) => r.json())
+					.then((data) => {
+						setUninstallMsg(data.ok ? (data.note || '已卸载，重启服务后生效。') : ('卸载失败：' + (data.error || '')));
+					})
+					.catch((e) => setUninstallMsg('卸载失败：' + String(e)))
+					.finally(() => setUninstalling(false));
 			};
 
 			const submit = () => { setResult(null); search(query); };
@@ -198,7 +232,23 @@ window.__ModuleLoader__.load({
 						}, restarting ? t('restarting') : t('restart')),
 						react.createElement('span', { key: 'hint', style: S.note }, t('restartHint'))
 					]),
-					restartError !== null ? react.createElement('p', { key: 'rerr', style: S.err }, t('restartFailed') + restartError) : null
+					restartError !== null ? react.createElement('p', { key: 'rerr', style: S.err }, t('restartFailed') + restartError) : null,
+					restarted ? react.createElement('div', { key: 'rdone', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
+						react.createElement('p', { key: 'msg', style: Object.assign({}, S.ok, { margin: 0 }) }, '服务已重启，插件已生效。'),
+						react.createElement('button', { key: 'btn', style: S.button, onClick: () => location.reload() }, '刷新页面')
+					]) : null,
+					result.conflict ? react.createElement('div', { key: 'conf', style: { display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--dsw-alias-state-error-primary)', borderRadius: 8, padding: '8px 10px' } }, [
+						react.createElement('p', { key: 'msg', style: Object.assign({}, S.err, { margin: 0 }) }, result.note || '检测到 loader 条目冲突。'),
+						react.createElement('div', { key: 'row', style: { display: 'flex', gap: 8, alignItems: 'center' } }, [
+							react.createElement('button', {
+								key: 'btn',
+								style: Object.assign({}, S.button, uninstalling ? S.buttonDisabled : {}),
+								disabled: uninstalling,
+								onClick: () => uninstall(window.__DSH_LAST_SPEC__)
+							}, uninstalling ? '卸载中…' : '卸载刚安装的插件'),
+							uninstallMsg ? react.createElement('span', { key: 'msg', style: S.note }, uninstallMsg) : null
+						])
+					]) : null
 				]) : null,
 				result && !result.ok ? react.createElement('div', { key: 'err', style: { display: 'flex', flexDirection: 'column', gap: 4 } }, [
 					react.createElement('p', { key: 'msg', style: S.err }, t('installFailed') + (result.error || '')),
