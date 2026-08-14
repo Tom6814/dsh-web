@@ -178,6 +178,24 @@ function safeBundles(profileDir) {
 	}
 }
 
+/** 读取 profile package.json（安全返回 null）。 */
+function safeManifest(profileDir) {
+	try {
+		return JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8'));
+	} catch {
+		return null;
+	}
+}
+
+/** 读取已安装包 manifest 中的 dsh 声明（安全返回空对象）。 */
+function pkgDshDecl(profileDir, packageName) {
+	try {
+		return JSON.parse(readFileSync(join(profileDir, 'node_modules', packageName, 'package.json'), 'utf8')).dsh ?? {};
+	} catch {
+		return {};
+	}
+}
+
 /**
 * 收集所有已注册 bundle 包在其 patch 文件中 `- insert:` 的条目 id，
 * 用于冲突检测：两个 bundle 插入同名 id 会让 loader 在 boot 时抛
@@ -325,6 +343,9 @@ export function apply(ctx) {
 				const profileDir = resolve(dshHome(), 'profiles', profile);
 				log(`install: 开始  spec=${raw} -> ${spec}  profile=${profile}  profileDir=${profileDir}`);
 				log(`install: 环境  DSH_HOME=${process.env.DSH_HOME ?? '(未设置，默认 ~/.dsh)'}  cwd=${process.cwd()}  node=${process.version}`);
+				// 安装前的依赖快照：安装后 diff 出「本次新增的依赖」，
+				// 用于判断新装包是否声明了 dsh.bundle（否则装完不生效）
+				const depsBefore = new Set(Object.keys(safeManifest(profileDir)?.dependencies ?? {}));
 				const run = () => new Promise((resolve) => {
 					execFile(
 						'dsh',
@@ -378,6 +399,15 @@ export function apply(ctx) {
 				log(`install: 成功 用时=${Date.now() - startedAt}ms  reconciled=${reconciled}  autoApproved=${autoApproved}`);
 				const bundles = safeBundles(profileDir);
 				log(`install: bundles 现状=${JSON.stringify(bundles)}`);
+				// 本次新增的依赖：检查是否声明了 dsh.bundle（否则重启后不会生效）
+				const manifestNow = safeManifest(profileDir) ?? {};
+				const added = Object.keys(manifestNow.dependencies ?? {}).filter((n) => !depsBefore.has(n));
+				const addedInfo = added.map((n) => {
+					const dsh = pkgDshDecl(profileDir, n);
+					return { name: n, hasBundle: !!dsh.bundle?.patch, hasClient: !!dsh.client };
+				});
+				const noBundle = addedInfo.filter((x) => !x.hasBundle);
+				log(`install: 新增依赖=${added.length ? added.join(',') : '无'}  未声明 dsh.bundle=${noBundle.length ? noBundle.map((x) => x.name).join(',') : '无'}`);
 				// 冲突检测：两个 bundle 插入同名 loader 条目会导致 boot 崩溃（crash loop）
 				const conflict = collectInsertIds(profileDir, bundles).duplicates;
 				if (conflict.size > 0) {
@@ -389,8 +419,27 @@ export function apply(ctx) {
 						output,
 						reconciled,
 						conflict: true,
+						noBundle,
 						note: conflictNote,
 						hint
+					});
+				}
+				// 新装包没有 dsh.bundle 组合层：装完不会生效，必须明确警告
+				if (noBundle.length > 0) {
+					const names = noBundle.map((x) => x.name).join('、');
+					const ghRepo = /^(github:|[^@/]+\/[^@/]+$)/.test(spec);
+					const monorepoHint = ghRepo
+						? '该仓库根包没有声明 dsh.bundle 组合层，这样安装不会生效。此类仓库通常是 monorepo：请改为安装它的 npm 聚合包或具体功能包（例如 dsh-web-ui 请安装 @linxin666/dsh-web-ui-all 或 @linxin666/dsh-client-ui-task-board）。'
+						: '该插件包未声明 dsh.bundle 组合层，安装后不会自动生效（可能需要在其仓库内构建后安装子包/聚合包，或它只是一个纯工具依赖）。';
+					log(`install: ⚠️ 新装包未声明 dsh.bundle（${names}），不会生效`);
+					return sendJson(res, 200, {
+						ok: false,
+						error: `${names} 未声明 dsh.bundle 组合层`,
+						output,
+						reconciled,
+						noBundle,
+						hint: monorepoHint,
+						note: '安装未生效：该插件没有 dsh.bundle 组合层，重启后不会加载。请按上方提示改用聚合包/功能包安装。'
 					});
 				}
 				sendJson(res, 200, {
