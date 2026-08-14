@@ -34,14 +34,17 @@ ENV DSH_HOME=/data/dsh
 # dsh 的「调用目录」即默认 workspace root，这里固定为 /workspace
 WORKDIR /workspace
 
-# Zeabur 适配层：browse 交互 + 插件市场 patch、插件包、启动脚本
+# Zeabur 适配层：browse 交互 + 插件市场 patch、插件包、Floatboat 风格 preset、启动脚本
 COPY patches/ /opt/dsh-zeabur/patches/
 COPY plugin-market/ /opt/dsh-zeabur/plugin-market/
+COPY plugins/ /opt/dsh-zeabur/plugins/
+COPY presets/ /opt/dsh-zeabur/presets/
 COPY start.sh /usr/local/bin/start-dsh
 RUN chmod +x /usr/local/bin/start-dsh
 
-# 构建时预装插件市场（失败不阻断构建；start.sh 会在首次启动时兜底补装）
+# 构建时预装插件市场与 Floatboat 风格提示插件（失败不阻断构建；start.sh 首次启动兜底补装）
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugin-market || true
+RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style || true
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080

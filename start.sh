@@ -27,11 +27,24 @@ echo "    profile : $DSH_PROFILE"
 echo "    DSH_HOME: $DSH_HOME"
 
 if [ "$DSH_PROFILE" = "web" ]; then
-  # ── 1. 确保插件市场已安装（挂载新持久化卷后首次启动需要补装）──
+  # ── 1. 确保插件已安装（挂载新持久化卷后首次启动需要补装）──
   #        镜像构建时已预装；若卷覆盖了 /data 则在此兜底。
   if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-plugin-market" ]; then
     echo "    plugin-market: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugin-market
+  fi
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-floatboat-style" ]; then
+    echo "    floatboat-style: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style
+  fi
+
+  # ── 1.5 部署 Floatboat 风格 agent preset 到用户预设目录 ──
+  #        dsh 的 agent-presets 服务默认扫描 $DSH_HOME/.agent-presets/（user trust），
+  #        新建会话时可在预设选择器中选用「Floatboat 风格」。
+  if [ ! -f "$DSH_HOME/.agent-presets/floatboat/agent.cordis.yml" ]; then
+    echo "    agent-preset floatboat: 首次部署…"
+    mkdir -p "$DSH_HOME/.agent-presets"
+    cp -rn /opt/dsh-zeabur/presets/floatboat "$DSH_HOME/.agent-presets/floatboat"
   fi
 
   # ── 2. 组装 --trusted-host：Zeabur 域名 + 用户自定义 ──

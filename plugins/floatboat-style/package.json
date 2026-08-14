@@ -1,0 +1,12 @@
+{
+  "name": "dsh-floatboat-style",
+  "version": "0.1.0",
+  "description": "将 Floatboat 的提示词工程精华迁移到 DeepSeek Harness：交付哲学、工具纪律、交付真实性契约、安全边界与委派/记忆纪律（作为 agent preset 的 prompt section 注入器）",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "license": "MIT"
+}

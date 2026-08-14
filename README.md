@@ -51,7 +51,9 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ├── Dockerfile                  # 镜像构建（Node LTS + nginx 反代 + dsh）
 ├── start.sh                    # 启动脚本
 ├── patches/                    # 部署适配配置（网页目录浏览 + 插件市场）
-└── plugin-market/              # 插件市场插件
+├── plugin-market/              # 插件市场插件
+├── plugins/floatboat-style/    # Floatboat 风格提示词注入插件（prompt sections）
+└── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
 ```
 
 ## 说明
@@ -66,6 +68,12 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   `PREVIEW_EXTRA_ROOTS` 追加额外可读根（逗号分隔；未设置时默认含容器临时目录）。
 - **插件启停**：设置 → 插件 → 「插件列表」展开任意插件卡片，详情里带「启用 / 停用」按钮，
   通过写入 `$DSH_HOME/cordis.patch.yml` 用户补丁层即时生效（dsh 热更新），重启后保持。
+- **Floatboat 风格预设**：新建会话时在预设选择器中选「Floatboat 风格」——将 Floatboat
+  （AOE Tech Labs）提示词工程的精华迁移到 dsh：交付完整度优先的工作哲学、工具使用纪律
+  （文件最小变更/来源可信度/浏览器与检索选择/凭据处理）、交付真实性契约（不虚构产物）、
+  安全边界（防套取/防泄露）与委派记忆纪律。基于官方 standard preset，工具能力完全一致；
+  提示段落由 `plugins/floatboat-style` 插件以 `systemPrompt.section()` 注入（对应
+  Floatboat 的 prompt-segment 机制），每段可独立关闭。
 - **插件安装**：搜索结果的安装按钮支持 `owner/repo` GitHub 简写（自动归一化为
   `github:owner/repo` 交给 pnpm）；Git 托管的带构建脚本插件需要先在容器
   `$DSH_HOME/profiles/web/pnpm-workspace.yaml` 配置 `allowBuilds`（安装失败时的提示会说明）。
