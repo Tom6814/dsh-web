@@ -1,0 +1,22 @@
+{
+  "name": "dsh-mcp-skill",
+  "version": "0.1.0",
+  "description": "DSH 技能与 MCP 管理：左侧栏入口，管理 MCP 服务器（含 Cursor .cursor/mcp.json 格式导入）与 Skills（SKILL.md）",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

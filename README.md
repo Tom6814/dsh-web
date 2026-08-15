@@ -62,6 +62,7 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ├── plugins/automation/         # 自动化插件（定时触发 AI 执行任务）
 ├── plugins/image-gen/          # 图片生成插件（对话内生成图片，gpt-image-1/2 等）
 ├── plugins/model-extras/       # 模型增强插件（OpenAI Responses API / 自定义模型）
+├── plugins/mcp-skill/          # 技能与 MCP 管理（侧栏入口 + Cursor mcp.json 导入）
 └── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
 ```
 
@@ -79,6 +80,13 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   可创建定时任务——间隔分钟、每天几点、每周周几几点，到点由 dsh 自带 headless 运行器执行
   任务（复用同一模型配置）；支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、
   运行历史查看。
+- **技能与 MCP（侧栏）**：左侧栏「技能与 MCP」入口（自动化下方）打开管理面板——
+  - **MCP 服务器**：新增/编辑/删除/启停（stdio 命令或 streamable-http URL），保存后写入
+    profile 的 `cordis.patch.yml`（`# managed-by: dsh-mcp-skill` 段），重启生效；
+  - **Cursor 格式导入**：粘贴 `.cursor/mcp.json` 内容或填工作区路径（如 `.cursor/mcp.json`），
+    自动解析 `mcpServers`（command/args/env 与 url/headers 均支持）批量导入；
+  - **Skills**：管理 `$DSH_HOME/skills/<name>/SKILL.md`（Claude 风格技能根），新建/删除/启停，
+    保存即出现在输入框「/」技能菜单。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。

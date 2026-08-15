@@ -66,6 +66,7 @@ RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/image-gen || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras || true
+RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill || true
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080

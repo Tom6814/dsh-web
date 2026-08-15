@@ -52,3 +52,8 @@
 - insert:
     - id: model-extras
       name: 'dsh-model-extras'
+
+# ── 6. 技能与 MCP 管理（左侧栏入口：MCP 服务器 + Skills + Cursor 格式导入）──
+- insert:
+    - id: mcp-skill
+      name: 'dsh-mcp-skill'
