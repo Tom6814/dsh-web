@@ -82,13 +82,20 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   任务（复用同一模型配置）；支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、
   运行历史查看。
 - **技能与 MCP（侧栏）**：左侧栏「技能与 MCP」入口（自动化下方）打开管理面板——
-  - **MCP 服务器**：新增/编辑/删除/启停（stdio 命令或 streamable-http URL）；**热插拔**：
-    保存/启停后立即连接或断开并注册/注销工具（`mcp__<服务器>__<工具>`），无需重启；
-    面板显示「已热连接 N 工具」状态；重启后自动恢复连接；
-  - **Cursor 格式导入**：粘贴 `.cursor/mcp.json` 内容或填工作区路径（如 `.cursor/mcp.json`），
-    自动解析 `mcpServers`（command/args/env 与 url/headers 均支持）批量导入，导入即热生效；
-  - **Skills**：管理 `$DSH_HOME/skills/<name>/SKILL.md`（Claude 风格技能根），新建/删除/启停，
-    保存即出现在输入框「/」技能菜单（dsh 技能文件监听，实时生效）。
+   - **MCP 服务器**：新增/编辑/删除/启停（stdio 命令或 streamable-http URL）；**热插拔**：
+     保存/启停后立即连接或断开并注册/注销工具（`mcp__<服务器>__<工具>`），无需重启；
+     面板显示「已热连接 N 工具」状态；重启后自动恢复连接；
+   - **OAuth 浏览器授权**：需要浏览器验证的远程 MCP（如 Supabase 等 streamable-http +
+     OAuth 服务器）自动进入「需浏览器授权」状态，点击「打开授权」在浏览器完成登录/授权
+     （授权码流：回调 → token 交换 → 自动连接注册工具），授权持久化，无需重启；
+   - **Cursor 格式**：导入区**直接粘贴 JSON 文本**（`.cursor/mcp.json` 的 `mcpServers` 内容，
+     command/args/env 与 url/headers 均支持）即批量导入并热生效；「以 Cursor 格式显示」
+     一键把当前服务器以 Cursor `mcpServers` 结构展示/导出；
+   - **Skills**：管理 `$DSH_HOME/skills/<name>/SKILL.md`（Claude 风格技能根）——**上传
+     SKILL.md 文件或 zip 压缩包**（自动解压定位 SKILL.md 并保留附属文件）、手动新建/删除/
+     启停；**「AI 帮我创建」**（一句话描述 → LLM 生成标准 SKILL.md 并安装）、**「AI 帮我安装」**
+     （粘贴任意教程/规则文本 → AI 整理成标准技能安装）；保存即出现在输入框「/」技能菜单
+     （dsh 技能文件监听，实时生效）。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。

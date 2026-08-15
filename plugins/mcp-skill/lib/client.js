@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
 			emptyServers: '还没有 MCP 服务器，添加一个或从 Cursor 导入。',
 			savedNote: '已保存：写入 profile/cordis.patch.yml，重启服务后生效',
 			secCursor: '导入 Cursor 配置',
-			cursorDesc: '粘贴 .cursor/mcp.json 内容，或填写工作区内路径（如 .cursor/mcp.json）。',
+			cursorDesc: '直接粘贴 .cursor/mcp.json 的 JSON 内容即可（Cursor 格式 mcpServers）。',
 			paste: '粘贴 mcp.json',
 			path: '工作区路径',
 			importBtn: '导入',
@@ -66,7 +66,7 @@ window.__ModuleLoader__.load({
 			emptyServers: 'No MCP servers yet. Add one or import from Cursor.',
 			savedNote: 'Saved: written to profile/cordis.patch.yml, restart to apply',
 			secCursor: 'Import Cursor config',
-			cursorDesc: 'Paste .cursor/mcp.json content, or a workspace-relative path (e.g. .cursor/mcp.json).',
+			cursorDesc: 'Paste the .cursor/mcp.json JSON content directly (Cursor mcpServers format).',
 			paste: 'Paste mcp.json',
 			path: 'Workspace path',
 			importBtn: 'Import',
@@ -90,7 +90,9 @@ window.__ModuleLoader__.load({
 			server: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2.5" y="2.8" width="11" height="4.4" rx="2"/><rect x="2.5" y="8.8" width="11" height="4.4" rx="2"/><path d="M5.2 5h.01M5.2 11h.01"/></svg>',
 			skill: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.8h7a2 2 0 0 1 2 2v8.4"/><path d="M3 2.8a1.5 1.5 0 0 0-1.5 1.5v8.9A1.8 1.8 0 0 1 3.3 11.4H12"/><path d="M10.5 5.5h1.8"/></svg>',
 			plus: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>',
-			importArrow: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v8M4.5 7.5L8 11l3.5-3.5"/><path d="M3 13h10"/></svg>'
+			importArrow: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v8M4.5 7.5L8 11l3.5-3.5"/><path d="M3 13h10"/></svg>',
+			upload: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12V4M4.5 7.5L8 4l3.5 3.5"/><path d="M3 13h10"/></svg>',
+			spark: '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.6l1.35 3.5 3.5 1.35-3.5 1.35L8 11.3 6.65 7.8 3.15 6.45l3.5-1.35z"/><circle cx="12.6" cy="12.6" r="1.15"/></svg>'
 		};
 
 		const S = {
@@ -142,14 +144,17 @@ window.__ModuleLoader__.load({
 			const [form, setForm] = useState({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '', enabled: true });
 			const [editingId, setEditingId] = useState(null);
 			const [cursorJson, setCursorJson] = useState('');
-			const [cursorPath, setCursorPath] = useState('');
+			const [cursorView, setCursorView] = useState(false);
+			const [cursorExport, setCursorExport] = useState(null);
 			const [skillForm, setSkillForm] = useState({ name: '', description: '', content: '' });
+			const [aiCreate, setAiCreate] = useState('');
+			const [aiInstall, setAiInstall] = useState('');
 			const [busy, setBusy] = useState(false);
 			const [msg, setMsg] = useState(null);
 			const [msgOk, setMsgOk] = useState(false);
 
 			const refresh = () => fetch('/api/mcp-skill/list').then((r) => r.json()).then((d) => { if (d.ok) { setServers(d.servers || []); setSkills(d.skills || []); setConnected(d.connected || []); } });
-			useEffect(() => { refresh(); }, []);
+			useEffect(() => { refresh(); const iv = window.setInterval(refresh, 6000); return () => window.clearInterval(iv); }, []);
 			const toast = (text, ok) => { setMsg(text); setMsgOk(!!ok); setTimeout(() => { setMsg(null); setMsgOk(false); }, 5000); };
 			const api = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
 
@@ -175,10 +180,38 @@ window.__ModuleLoader__.load({
 			const editServer = (s) => { setEditingId(s.id); setForm({ name: s.name, transport: s.transport, command: s.command || '', args: (s.args || []).join(', '), env: Object.entries(s.env || {}).map(([k, v]) => k + '=' + v).join(', '), url: s.url || '', enabled: !!s.enabled }); };
 
 			const importCursor = () => {
-				if (!cursorJson.trim() && !cursorPath.trim()) { toast(t('err') + t('secCursor'), false); return; }
+				if (!cursorJson.trim()) { toast(t('err') + t('secCursor'), false); return; }
 				setBusy(true);
-				api('/api/mcp-skill/import-cursor', { json: cursorJson, path: cursorPath })
-					.then((d) => { if (!d.ok) { toast(t('err') + (d.error || ''), false); return; } toast(t('importOk').replace('{n}', d.added).replace('{s}', d.skipped), true); setCursorJson(''); setCursorPath(''); refresh(); })
+				api('/api/mcp-skill/import-cursor', { json: cursorJson })
+					.then((d) => { if (!d.ok) { toast(t('err') + (d.error || ''), false); return; } toast(t('importOk').replace('{n}', d.added).replace('{s}', d.skipped), true); setCursorJson(''); refresh(); })
+					.finally(() => setBusy(false));
+			};
+			const toggleCursorView = () => {
+				if (!cursorView) { fetch('/api/mcp-skill/cursor-export').then((r) => r.json()).then((d) => { if (d.ok) setCursorExport(JSON.stringify(d.cursor, null, 2)); }); }
+				setCursorView(!cursorView);
+			};
+			const openAuth = (url) => { if (url) window.open(url, '_blank', 'noopener'); };
+			const readFileBase64 = (file) => new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(String(fr.result).split(',')[1] || ''); fr.onerror = reject; fr.readAsDataURL(file); });
+			const uploadSkillFile = (file) => {
+				if (!file) return;
+				setBusy(true);
+				const isZip = /\.zip$/i.test(file.name);
+				readFileBase64(file).then((b64) => api('/api/mcp-skill/skill/upload', { filename: file.name, content: isZip ? b64 : decodeURIComponent(escape(atob(b64))) }))
+					.then((d) => { if (!d.ok) { toast(t('err') + (d.error || ''), false); return; } toast(t('savedNote'), true); refresh(); })
+					.finally(() => setBusy(false));
+			};
+			const aiCreateSkill = () => {
+				if (!aiCreate.trim()) { toast(t('err') + 'AI 描述', false); return; }
+				setBusy(true);
+				api('/api/mcp-skill/skill/ai-create', { description: aiCreate })
+					.then((d) => { if (!d.ok) { toast(t('err') + (d.error || ''), false); return; } toast('AI 已创建技能「' + d.skill.name + '」', true); setAiCreate(''); refresh(); })
+					.finally(() => setBusy(false));
+			};
+			const aiInstallSkill = () => {
+				if (!aiInstall.trim()) { toast(t('err') + 'AI 内容', false); return; }
+				setBusy(true);
+				api('/api/mcp-skill/skill/ai-install', { content: aiInstall })
+					.then((d) => { if (!d.ok) { toast(t('err') + (d.error || ''), false); return; } toast('AI 已安装技能「' + d.skill.name + '」', true); setAiInstall(''); refresh(); })
 					.finally(() => setBusy(false));
 			};
 
@@ -201,7 +234,7 @@ window.__ModuleLoader__.load({
 						react.createElement('span', { key: 'ic', style: S.icon }, svgIcon(ICONS.server, 13)),
 						react.createElement('span', { key: 'n', style: { fontSize: 13, fontWeight: 600, flex: 1, overflowWrap: 'anywhere' } }, s.name),
 						react.createElement('span', { key: 'ty', style: Object.assign({}, S.note, { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 999, padding: '1px 8px' }) }, s.transport === 'streamable-http' ? 'HTTP' : 'stdio'),
-						(() => { const c = connected.find((x) => x.name === s.name); return c ? react.createElement('span', { key: 'hc', style: Object.assign({}, S.ok, { display: 'inline-flex', alignItems: 'center', gap: 5 }) }, [react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: 'var(--dsw-alias-state-success-primary)' }) }), '已热连接 ' + c.tools + ' 工具']) : null; })(),
+						(() => { const c = connected.find((x) => x.name === s.name); if (!c) return null; if (c.authRequired && c.authRequired.url) return react.createElement('span', { key: 'au', style: Object.assign({}, S.err, { display: 'inline-flex', alignItems: 'center', gap: 5 }) }, [react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: 'var(--dsw-alias-state-warning-primary, #e8b339)' }) }), '需浏览器授权', react.createElement(Btn, { key: 'b', t, ghost: true, onClick: () => openAuth(c.authRequired.url) }, '打开授权')]); return react.createElement('span', { key: 'hc', style: Object.assign({}, S.ok, { display: 'inline-flex', alignItems: 'center', gap: 5 }) }, [react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: 'var(--dsw-alias-state-success-primary)' }) }), '已热连接 ' + c.tools + ' 工具']); })(),
 						react.createElement('button', { key: 'tg', type: 'button', style: Object.assign({}, S.btnGhost, { display: 'inline-flex', alignItems: 'center', gap: 6, color: s.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }), onClick: () => toggleServer(s) }, [
 							react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: s.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }) }),
 							t('enabled')
@@ -220,6 +253,10 @@ window.__ModuleLoader__.load({
 				// MCP 服务器
 				react.createElement(Section, { key: 'm', icon: ICONS.server, title: t('secMcp'), action: react.createElement(Btn, { t, primary: true, onClick: () => { setEditingId(null); setForm({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '', enabled: true }); } }, [svgIcon(ICONS.plus, 12), t('addServer')]) }, [
 					servers.length === 0 ? react.createElement('p', { key: 'e', style: S.note }, t('emptyServers')) : serverRows,
+					react.createElement('div', { key: 'cv', style: S.row }, [
+						react.createElement(Btn, { key: 't', t, ghost: true, onClick: toggleCursorView }, cursorView ? '隐藏 Cursor 视图' : '以 Cursor 格式显示'),
+						cursorView && cursorExport ? react.createElement('pre', { key: 'o', style: Object.assign({}, S.note, { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 10, padding: '8px 10px', overflow: 'auto', maxHeight: 200, fontSize: 11.5, lineHeight: '16px', whiteSpace: 'pre' }) }, cursorExport) : null
+					]),
 					react.createElement('div', { key: 'form', style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 } }, [
 						react.createElement('div', { key: 'r1', style: S.row }, [
 							react.createElement('span', { key: 'l', style: S.label }, t('name')),
@@ -262,8 +299,6 @@ window.__ModuleLoader__.load({
 					react.createElement('p', { key: 'd', style: S.note }, t('cursorDesc')),
 					react.createElement('textarea', { key: 'j', style: Object.assign({}, S.textarea, { minHeight: 96 }), placeholder: '{ "mcpServers": { "filesystem": { "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"] } } }', value: cursorJson, onChange: (e) => setCursorJson(e.target.value) }),
 					react.createElement('div', { key: 'r', style: S.row }, [
-						react.createElement('span', { key: 'l', style: S.label }, t('path')),
-						react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: '.cursor/mcp.json', value: cursorPath, onChange: (e) => setCursorPath(e.target.value) }),
 						react.createElement(Btn, { key: 'b', t, primary: true, disabled: busy, onClick: importCursor }, busy ? t('importing') : [svgIcon(ICONS.importArrow, 12), t('importBtn')])
 					])
 				]),
@@ -286,6 +321,20 @@ window.__ModuleLoader__.load({
 						])
 					),
 					react.createElement('div', { key: 'form', style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 } }, [
+						// 上传 SKILL.md / zip
+						react.createElement('div', { key: 'up', style: S.row }, [
+							react.createElement('label', { key: 'l', style: Object.assign({}, S.btn, { cursor: 'pointer', fontSize: 12 }) }, [svgIcon(ICONS.upload, 12), '上传 SKILL.md / zip', react.createElement('input', { key: 'i', type: 'file', accept: '.md,.markdown,.zip', style: { display: 'none' }, onChange: (e) => { uploadSkillFile(e.target.files && e.target.files[0]); e.target.value = ''; } })])
+						]),
+						// AI 帮我创建
+						react.createElement('div', { key: 'ai1', style: S.row }, [
+							react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: 'AI 帮我创建：描述你想要的技能（如：帮我写一个生成提交信息的技能）', value: aiCreate, onChange: (e) => setAiCreate(e.target.value) }),
+							react.createElement(Btn, { key: 'b', t, primary: true, disabled: busy, onClick: aiCreateSkill }, busy ? t('importing') : [svgIcon(ICONS.spark, 12), 'AI 创建'])
+						]),
+						// AI 帮我安装
+						react.createElement('div', { key: 'ai2', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
+							react.createElement('textarea', { key: 't', style: Object.assign({}, S.textarea, { minHeight: 64 }), placeholder: 'AI 帮我安装：粘贴任意技能内容（教程/规则/示例），AI 会整理成标准 SKILL.md 并安装', value: aiInstall, onChange: (e) => setAiInstall(e.target.value) }),
+							react.createElement(Btn, { key: 'b', t, primary: true, disabled: busy, onClick: aiInstallSkill }, busy ? t('importing') : [svgIcon(ICONS.spark, 12), 'AI 安装'])
+						]),
 						react.createElement('div', { key: 'r1', style: S.row }, [
 							react.createElement('span', { key: 'l', style: S.label }, t('skillName')),
 							react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: 'my-skill', value: skillForm.name, onChange: setSkill('name') })
