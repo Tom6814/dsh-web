@@ -58,6 +58,19 @@ if [ "$DSH_PROFILE" = "web" ]; then
   # 每次启动重跑会把 link 路径刷新到 /opt/dsh-zeabur/vendor。
   echo "    dsh-super-injector: 确保装配…"
   dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector || echo "    ! injector 装配失败（不影响启动）"
+  # 运行时依赖链接（幂等）：injector 的 lib 在 /opt 下按真实路径解析依赖，
+  # 需把 cordis/schemastery/@deepseek-ai/* 链接到 dsh 全局树，否则 import 报错。
+  INJ=/opt/dsh-zeabur/vendor/dsh-routing-suite/injector
+  DT=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules
+  if [ -d "$INJ" ] && [ -d "$DT" ]; then
+    mkdir -p "$INJ/node_modules/@deepseek-ai"
+    ln -sfn "$DT/@deepseek-ai/cordis" "$INJ/node_modules/cordis"
+    ln -sfn "$DT/@deepseek-ai/schemastery" "$INJ/node_modules/schemastery"
+    ln -sfn "$DT/@deepseek-ai/dsh-client-ui-slots" "$INJ/node_modules/@deepseek-ai/dsh-client-ui-slots"
+    ln -sfn "$DT/@deepseek-ai/dsh-llm" "$INJ/node_modules/@deepseek-ai/dsh-llm"
+    ln -sfn "$DT/@deepseek-ai/dsh-tools" "$INJ/node_modules/@deepseek-ai/dsh-tools"
+    [ -d "$DT/tsdown" ] && ln -sfn "$DT/tsdown" "$INJ/node_modules/tsdown"
+  fi
 
   # ── 1.4 router-standard 路由预设（dsh-routing-suite）──
   if [ ! -f "$DSH_HOME/.agent-presets/router-standard/agent.cordis.yml" ]; then

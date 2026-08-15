@@ -70,6 +70,19 @@ RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill || true
 # dsh-routing-suite：运行时注入器（dev_* 工具全家桶）；预设由 start.sh 部署
 RUN dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector || true
+# injector 是 bundle 层，其 lib/index.js 在 /opt 下按真实路径解析依赖——
+# 把运行时依赖链接到 dsh 全局树（cordis/schemastery/@deepseek-ai/*），否则
+# 启动 import 报 Cannot find package 'schemastery'。
+RUN INJ=/opt/dsh-zeabur/vendor/dsh-routing-suite/injector \
+  && DT=/usr/local/lib/node_modules/@deepseek-ai/dsh/node_modules \
+  && mkdir -p "$INJ/node_modules/@deepseek-ai" \
+  && ln -sfn "$DT/@deepseek-ai/cordis" "$INJ/node_modules/cordis" \
+  && ln -sfn "$DT/@deepseek-ai/schemastery" "$INJ/node_modules/schemastery" \
+  && ln -sfn "$DT/@deepseek-ai/dsh-client-ui-slots" "$INJ/node_modules/@deepseek-ai/dsh-client-ui-slots" \
+  && ln -sfn "$DT/@deepseek-ai/dsh-llm" "$INJ/node_modules/@deepseek-ai/dsh-llm" \
+  && ln -sfn "$DT/@deepseek-ai/dsh-tools" "$INJ/node_modules/@deepseek-ai/dsh-tools" \
+  && if [ -d "$DT/tsdown" ]; then ln -sfn "$DT/tsdown" "$INJ/node_modules/tsdown"; fi \
+  && echo "injector 依赖链接已建立"
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080
