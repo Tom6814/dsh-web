@@ -44,3 +44,11 @@
 - insert:
     - id: automation
       name: 'dsh-automation'
+
+# ── 5. 图片生成 + 模型增强（对话内生成图片 / OpenAI Responses API / 自定义模型）──
+- insert:
+    - id: image-gen
+      name: 'dsh-image-gen'
+- insert:
+    - id: model-extras
+      name: 'dsh-model-extras'

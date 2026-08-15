@@ -41,6 +41,14 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    automation: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation
   fi
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-image-gen" ]; then
+    echo "    image-gen: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/plugins/image-gen
+  fi
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-model-extras" ]; then
+    echo "    model-extras: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras
+  fi
 
   # ── 1.5 部署 Floatboat 风格 agent preset 到用户预设目录 ──
   #        dsh 的 agent-presets 服务默认扫描 $DSH_HOME/.agent-presets/（user trust），

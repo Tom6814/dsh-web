@@ -56,11 +56,16 @@ COPY plugins/ /opt/dsh-zeabur/plugins/
 COPY presets/ /opt/dsh-zeabur/presets/
 COPY start.sh /usr/local/bin/start-dsh
 RUN chmod +x /usr/local/bin/start-dsh
+# 插件 import @deepseek-ai/* 官方包：把 harness 的 node_modules 链接到插件共享根，
+# 使 /opt/dsh-zeabur/plugins/* 的 ESM import 可达（如 dsh-tools / dsh-llm / schemastery）
+RUN ln -sfn "$(npm root -g)/@deepseek-ai/dsh/node_modules" /opt/dsh-zeabur/node_modules
 
 # 构建时预装插件市场与 Floatboat 风格提示插件（失败不阻断构建；start.sh 首次启动兜底补装）
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugin-market || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation || true
+RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/image-gen || true
+RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras || true
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080

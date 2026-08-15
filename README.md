@@ -60,11 +60,19 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ├── plugin-market/              # 插件市场插件（搜索安装 / 预览面板 / 导出项目）
 ├── plugins/floatboat-style/    # Floatboat 风格提示词注入插件（prompt sections）
 ├── plugins/automation/         # 自动化插件（定时触发 AI 执行任务）
+├── plugins/image-gen/          # 图片生成插件（对话内生成图片，gpt-image-1/2 等）
+├── plugins/model-extras/       # 模型增强插件（OpenAI Responses API / 自定义模型）
 └── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
 ```
 
 ## 说明
 
+- **自定义模型 / OpenAI Responses API（Codex、gpt-5）**：「设置 → 插件 → 模型增强」填写任意
+  OpenAI 兼容的 API 地址与 Key，点「自动获取模型」从 `GET /models` 拉取模型列表，保存后即可在
+  会话的模型选择器中选 `openai-responses` 提供方（走 `POST /responses`，支持工具调用与流式）。
+- **对话内生成图片（GPT Image 1/2 等）**：「设置 → 插件 → 图片生成」配置图片端点（OpenAI 兼容
+  `/images/generations`）与 Key，自动获取图片模型（gpt-image-1、gpt-image-2、dall-e-3…）。
+  之后直接让 Agent 生成图片——工具 `generate_image` 会把图片保存到工作区 `images/` 并可预览。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。

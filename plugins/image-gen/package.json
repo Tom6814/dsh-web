@@ -1,0 +1,22 @@
+{
+  "name": "dsh-image-gen",
+  "version": "0.1.0",
+  "description": "DSH 对话内生成图片：Agent 调用 generate_image 工具，经自定义 OpenAI 兼容端点调用图片模型（gpt-image-1 / gpt-image-2 等），图片保存到工作区",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

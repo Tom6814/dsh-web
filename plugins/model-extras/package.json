@@ -1,0 +1,22 @@
+{
+  "name": "dsh-model-extras",
+  "version": "0.1.0",
+  "description": "DSH 模型增强：OpenAI Responses API（Codex/gpt-5）适配器 + 自定义模型（任意 API 地址+Key，/models 自动获取模型列表）",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}
