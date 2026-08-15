@@ -92,12 +92,12 @@ window.__ModuleLoader__.load({
 		// DeepSeek 原生设计语言 tokens（圆润风格：胶囊/大圆角、柔和层次）
 		const S = {
 			wrap: { display: 'flex', flexDirection: 'column', gap: 12, color: 'var(--dsw-alias-label-primary)' },
-			btn: { height: 30, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 14px', fontSize: 12.5, cursor: 'pointer', font: 'inherit', transition: 'background .12s ease, border-color .12s ease', whiteSpace: 'nowrap' },
-			btnPrimary: { height: 30, borderRadius: 10, border: '1px solid transparent', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', padding: '0 16px', fontSize: 12, cursor: 'pointer', font: 'inherit', transition: 'filter .12s ease', whiteSpace: 'nowrap' },
-			btnGhost: { height: 26, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', padding: '0 12px', fontSize: 12, cursor: 'pointer', font: 'inherit', transition: 'all .12s ease' },
+			btn: { height: 30, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 14px', fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit', transition: 'background .12s ease, border-color .12s ease', whiteSpace: 'nowrap' },
+			btnPrimary: { height: 30, borderRadius: 10, border: '1px solid transparent', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', padding: '0 16px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', transition: 'filter .12s ease', whiteSpace: 'nowrap' },
+			btnGhost: { height: 26, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', padding: '0 12px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', transition: 'all .12s ease' },
 			disabled: { opacity: .55, cursor: 'not-allowed' },
-			input: { height: 34, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 10px', fontSize: 13, font: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s ease' },
-			textarea: { borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '8px 10px', fontSize: 13, font: 'inherit', outline: 'none', minHeight: 76, resize: 'vertical', boxSizing: 'border-box' },
+			input: { height: 34, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 10px', fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s ease' },
+			textarea: { borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', outline: 'none', minHeight: 76, resize: 'vertical', boxSizing: 'border-box' },
 			card: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', borderRadius: 14, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, transition: 'border-color .18s ease' },
 			note: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, lineHeight: '18px', margin: 0 },
 			ok: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, margin: 0 },
@@ -220,7 +220,7 @@ window.__ModuleLoader__.load({
 
 			const listEl = react.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } }, [
 				react.createElement('div', { key: 'head', style: S.row }, [
-					react.createElement('p', { key: 't', style: Object.assign({}, S.note, { fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }) }, t('listTitle')),
+					react.createElement('p', { key: 't', style: Object.assign({}, S.note, { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }) }, t('listTitle')),
 					react.createElement('div', { key: 'sp', style: { flex: 1 } }),
 					mkBtn('＋ ' + t('newTask'), () => setEditing('new'), S.btnPrimary)
 				]),
@@ -228,7 +228,7 @@ window.__ModuleLoader__.load({
 				tasks.map((task) =>
 					react.createElement('div', { key: task.id, style: S.card }, [
 						react.createElement('div', { key: 'r1', style: S.row }, [
-							react.createElement('p', { key: 'n', style: { margin: 0, fontSize: 14, fontWeight: 600, flex: 1, overflowWrap: 'anywhere' } }, task.name),
+							react.createElement('p', { key: 'n', style: { margin: 0, fontSize: 13, fontWeight: 600, flex: 1, overflowWrap: 'anywhere' } }, task.name),
 							react.createElement('button', {
 								key: 'tg', type: 'button',
 								style: Object.assign({}, S.btnGhost, { display: 'inline-flex', alignItems: 'center', gap: 6, color: task.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }),
@@ -253,7 +253,7 @@ window.__ModuleLoader__.load({
 			]);
 
 			const historyEl = react.createElement('div', { key: 'h', style: { display: 'flex', flexDirection: 'column', gap: 6 } }, [
-				react.createElement('p', { key: 't', style: Object.assign({}, S.note, { fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }) }, t('history')),
+				react.createElement('p', { key: 't', style: Object.assign({}, S.note, { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary)' }) }, t('history')),
 				runs.length === 0 ? react.createElement('p', { key: 'e', style: S.note }, t('never')) : null,
 				runs.slice(0, 8).map((r) =>
 					react.createElement('div', { key: r.id, style: Object.assign({}, S.card, { padding: '8px 12px', gap: 4 }) }, [
@@ -314,7 +314,7 @@ window.__ModuleLoader__.load({
 				t1Row.appendChild(makeIcon(ICONS.checklist, 16));
 				const t1 = document.createElement('span');
 				t1.textContent = t('title');
-				t1.style.cssText = 'font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary);';
+				t1.style.cssText = 'font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);';
 				t1Row.appendChild(t1);
 				const t2 = document.createElement('span');
 				t2.textContent = t('subtitle');
@@ -325,7 +325,7 @@ window.__ModuleLoader__.load({
 				const closeBtn = document.createElement('button');
 				closeBtn.textContent = '✕';
 				closeBtn.title = t('close');
-				closeBtn.style.cssText = 'height:28px;width:28px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px;transition:background .12s ease,color .12s ease;';
+				closeBtn.style.cssText = 'height:28px;width:28px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:13px;line-height:1;transition:background .12s ease,color .12s ease;';
 				closeBtn.onmouseenter = () => { closeBtn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 				closeBtn.onmouseleave = () => { closeBtn.style.background = 'transparent'; };
 				closeBtn.onclick = closePanel;
@@ -380,7 +380,7 @@ window.__ModuleLoader__.load({
 				const parent = newBtn && newBtn.parentElement ? newBtn.parentElement : col;
 				btn = document.createElement('button');
 				btn.setAttribute('data-dsh-auto-entry', '1');
-				btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:6px 10px;margin:0 2px 2px;border-radius:12px;border:none;background:transparent;color:var(--dsw-alias-label-primary,#f9fafb);font-size:14px;font-weight:400;cursor:pointer;font:inherit;transition:background .12s ease,color .12s ease;text-align:left;box-sizing:border-box;';
+				btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:38px;padding:6px 10px;margin:0 2px 2px;border-radius:12px;border:none;background:transparent;color:var(--dsw-alias-label-primary,#f9fafb);font-size:14px;font-weight:400;cursor:pointer;font:inherit;transition:background .12s ease,color .12s ease;text-align:left;box-sizing:border-box;';
 				btn.onmouseenter = () => { btn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 				btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 				btn.onclick = openPanel;
