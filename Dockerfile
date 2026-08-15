@@ -31,6 +31,17 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 ARG DSH_VERSION=0.1.0-rc.6
 RUN npm install -g --no-fund --no-audit --registry=$NPM_REGISTRY @deepseek-ai/dsh@$DSH_VERSION pnpm
 
+# 浏览器自动化 MCP server（Patchright stealth 版）：Agent 通过
+# mcp__browser__browse/interact/extract/close 查看与操作网页（可过基础机器人验证）
+RUN git clone --depth 1 https://github.com/dylangroos/patchright-mcp-lite /opt/patchright-mcp \
+    && cd /opt/patchright-mcp \
+    && npm install --no-fund --no-audit --registry=$NPM_REGISTRY \
+    && npm run build \
+    && npx patchright install chromium \
+    # MCP stdio 协议不容许杂音：把 server 的 console.log 改走 stderr，避免污染协议流
+    && find dist -name '*.js' -exec sed -i 's/console\.log/console.error/g' {} + \
+    || true
+
 # dsh 的数据目录：配置文件、profile、会话都存这里。
 # 在 Zeabur 上建议把持久化存储挂载到 /data，重启后数据不丢。
 ENV DSH_HOME=/data/dsh
@@ -49,6 +60,7 @@ RUN chmod +x /usr/local/bin/start-dsh
 # 构建时预装插件市场与 Floatboat 风格提示插件（失败不阻断构建；start.sh 首次启动兜底补装）
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugin-market || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style || true
+RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation || true
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080

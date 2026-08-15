@@ -24,3 +24,23 @@
 - insert:
     - id: plugin-market
       name: 'dsh-plugin-market'
+
+# ── 3. 浏览器自动化（MCP）：Patchright stealth 浏览器 ────────────────────
+# Agent 通过 dsh 的 MCP 客户端接入 /opt/patchright-mcp（镜像内置），工具以
+# mcp__browser__browse / interact / extract / close 形式出现在 Agent 工具集，
+# 可查看与操作网页（Patchright 驱动级 stealth，能过基础机器人验证）。
+- insert:
+    - id: mcp-browser
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: browser
+        command: node
+        args: ['/opt/patchright-mcp/dist/index.js']
+        cwd: /opt/patchright-mcp
+        failOnStartupError: false
+
+# ── 4. 自动化：定时触发 AI 执行任务（host 调度 + headless 执行 + UI tab）──
+- insert:
+    - id: automation
+      name: 'dsh-automation'

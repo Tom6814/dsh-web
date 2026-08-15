@@ -1,0 +1,22 @@
+{
+  "name": "dsh-automation",
+  "version": "0.1.0",
+  "description": "DSH 自动化：定时触发 AI 执行任务（间隔/每天/每周），支持 AI 辅助优化任务描述（对齐 Trae Work）",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "slots",
+        "locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

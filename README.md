@@ -52,15 +52,30 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ## 项目结构
 
 ```
-├── Dockerfile                  # 镜像构建（Node LTS + nginx 反代 + dsh）
+├── Dockerfile                  # 镜像构建（Node LTS + nginx 反代 + dsh + Patchright 浏览器）
 ├── start.sh                    # 启动脚本
-├── patches/                    # 部署适配配置（网页目录浏览 + 插件市场）
-├── plugin-market/              # 插件市场插件
+├── patches/                    # 部署适配配置（网页目录浏览 + 插件市场 + 浏览器 MCP + 自动化）
+│   ├── web.cordis.patch.yml    # web profile：browse 交互 / 插件市场 / MCP 浏览器 / 自动化
+│   └── headless.cordis.patch.yml # headless profile：仅浏览器 MCP（自动化任务执行时使用）
+├── plugin-market/              # 插件市场插件（搜索安装 / 预览面板 / 导出项目）
 ├── plugins/floatboat-style/    # Floatboat 风格提示词注入插件（prompt sections）
+├── plugins/automation/         # 自动化插件（定时触发 AI 执行任务）
 └── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
 ```
 
 ## 说明
+
+- **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
+  能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
+  extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。
+- **自动化（对齐 Trae Work）**：「设置 → 插件 → 自动化」可创建定时任务——间隔分钟、
+  每天几点、每周周几几点，到点由 dsh 自带 headless 运行器执行任务（复用同一模型配置）；
+  支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、运行历史查看。
+- **导出**：右上角「导出」按钮二级菜单——导出项目（工作区打包 zip 直接下载，不落盘，
+  自动排除 node_modules/.git/dist 等）、导出会话日志（复用官方 Session log）。
+- **预览面板**：对话中的 localhost 链接与文件在右侧分栏预览（可拖宽、缩放、移动端全屏）；
+  地址栏显示 `127.0.0.1:端口` / `file://` 格式；除二进制外任意文件可预览（文本直接显示，
+  二进制给出下载页）。
 
 - 镜像基于 Node 22 LTS，内置 nginx 反向代理（`dsh` 出于安全设计不支持 `0.0.0.0` 直绑）。
 - 首次使用：添加工作区 → 网页内目录树选目录 → 开始对话；模型配置在 设置 → Models。
