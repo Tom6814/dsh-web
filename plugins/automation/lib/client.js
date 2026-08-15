@@ -82,21 +82,30 @@ window.__ModuleLoader__.load({
 			close: 'Close'
 		};
 
-		// DeepSeek 原生设计语言 tokens
+		// DeepSeek 原版风格的内联 SVG 图标（1.5px 圆角描边、currentColor 跟随主题）
+		const ICONS = {
+			checklist: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="2.5" width="10.4" height="11" rx="2.8"/><path d="M6 6.4l1.2 1.2 2.8-2.9"/><path d="M6 10.4l1.2 1.2 2.8-2.9"/></svg>',
+			play: '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5.6 3.8a.65.65 0 0 1 1-.55l6 4.05a.65.65 0 0 1 0 1.1l-6 4.05a.65.65 0 0 1-1-.55z"/></svg>',
+			enhance: '<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.6l1.35 3.5 3.5 1.35-3.5 1.35L8 11.3 6.65 7.8 3.15 6.45l3.5-1.35z"/><circle cx="12.6" cy="12.6" r="1.15"/></svg>'
+		};
+
+		// DeepSeek 原生设计语言 tokens（圆润风格：胶囊/大圆角、柔和层次）
 		const S = {
 			wrap: { display: 'flex', flexDirection: 'column', gap: 12, color: 'var(--dsw-alias-label-primary)' },
-			btn: { height: 30, borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 14px', fontSize: 13, cursor: 'pointer', font: 'inherit', transition: 'background .12s ease, border-color .12s ease', whiteSpace: 'nowrap' },
-			btnPrimary: { height: 30, borderRadius: 8, border: '1px solid transparent', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', padding: '0 16px', fontSize: 13, cursor: 'pointer', font: 'inherit', transition: 'filter .12s ease', whiteSpace: 'nowrap' },
+			btn: { height: 30, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 14px', fontSize: 12.5, cursor: 'pointer', font: 'inherit', transition: 'background .12s ease, border-color .12s ease', whiteSpace: 'nowrap' },
+			btnPrimary: { height: 30, borderRadius: 10, border: '1px solid transparent', background: 'var(--dsw-alias-state-business-primary)', color: '#fff', padding: '0 16px', fontSize: 12, cursor: 'pointer', font: 'inherit', transition: 'filter .12s ease', whiteSpace: 'nowrap' },
 			btnGhost: { height: 26, borderRadius: 999, border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', padding: '0 12px', fontSize: 12, cursor: 'pointer', font: 'inherit', transition: 'all .12s ease' },
 			disabled: { opacity: .55, cursor: 'not-allowed' },
-			input: { height: 34, borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 10px', fontSize: 13, font: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s ease' },
-			textarea: { borderRadius: 8, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '8px 10px', fontSize: 13, font: 'inherit', outline: 'none', minHeight: 76, resize: 'vertical', boxSizing: 'border-box' },
-			card: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, transition: 'border-color .18s ease' },
+			input: { height: 34, borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '0 10px', fontSize: 13, font: 'inherit', outline: 'none', boxSizing: 'border-box', transition: 'border-color .15s ease' },
+			textarea: { borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-1)', color: 'var(--dsw-alias-label-primary)', padding: '8px 10px', fontSize: 13, font: 'inherit', outline: 'none', minHeight: 76, resize: 'vertical', boxSizing: 'border-box' },
+			card: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-layer-3)', borderRadius: 14, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8, transition: 'border-color .18s ease' },
 			note: { color: 'var(--dsw-alias-label-tertiary)', fontSize: 12, lineHeight: '18px', margin: 0 },
 			ok: { color: 'var(--dsw-alias-state-success-primary)', fontSize: 12, margin: 0 },
 			err: { color: 'var(--dsw-alias-state-error-primary)', fontSize: 12, margin: 0 },
 			row: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
-			label: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', minWidth: 60 }
+			label: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', minWidth: 60 },
+			dot: { width: 8, height: 8, borderRadius: '50%', flex: 'none', display: 'inline-block' },
+			icon: { display: 'inline-flex', alignItems: 'center', flex: 'none', color: 'var(--dsw-alias-label-secondary)' }
 		};
 
 		function scheduleText(t, sc) {
@@ -156,6 +165,10 @@ window.__ModuleLoader__.load({
 				api('/api/automation/optimize', { prompt: form.prompt }).then((d) => { if (d.ok && d.prompt) setForm((f) => ({ ...f, prompt: d.prompt })); else toast(t('err') + (d.error || '优化失败')); }).finally(() => setOptimizing(false));
 			};
 			const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target ? e.target.value : e }));
+			// 内联 SVG 图标（原版线条风格）
+			const svgIcon = (html, size) => react.createElement('span', { style: Object.assign({}, S.icon, { width: size || 14, height: size || 14 }), dangerouslySetInnerHTML: { __html: html } });
+			const runLabel = runningId ? t('running') : t('runNow');
+			const runNode = runningId ? runLabel : react.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 } }, [svgIcon(ICONS.play, 13), runLabel]);
 			const mkBtn = (label, onClick, style, disabled, hoverBg) => react.createElement('button', {
 				type: 'button', style: Object.assign({}, style || S.btn, disabled ? S.disabled : {}), disabled,
 				onMouseEnter: (e) => { if (!disabled) e.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'; },
@@ -171,7 +184,7 @@ window.__ModuleLoader__.load({
 				react.createElement('div', { key: 'p', style: S.row }, [
 					react.createElement('span', { key: 'l', style: S.label }, t('prompt')),
 					react.createElement('textarea', { key: 'i', style: Object.assign({}, S.textarea, { flex: 1 }), placeholder: t('promptPlaceholder'), value: form.prompt, onChange: set('prompt') }),
-					react.createElement('button', { key: 'b', type: 'button', style: Object.assign({}, S.btn, optimizing ? S.disabled : {}), disabled: optimizing, onMouseEnter: (e) => { if (!optimizing) e.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'; }, onMouseLeave: (e) => { e.currentTarget.style.background = 'var(--dsw-alias-bg-layer-1)'; }, onClick: optimize }, optimizing ? t('optimizing') : t('aiOptimize'))
+					react.createElement('button', { key: 'b', type: 'button', style: Object.assign({}, S.btn, { display: 'inline-flex', alignItems: 'center', gap: 6 }, optimizing ? S.disabled : {}), disabled: optimizing, onMouseEnter: (e) => { if (!optimizing) e.currentTarget.style.background = 'var(--dsw-alias-interactive-bg-hover)'; }, onMouseLeave: (e) => { e.currentTarget.style.background = 'var(--dsw-alias-bg-layer-1)'; }, onClick: optimize }, optimizing ? t('optimizing') : react.createElement('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 } }, [svgIcon(ICONS.enhance, 13), t('aiOptimize')]))
 				]),
 				react.createElement('div', { key: 's', style: S.row }, [
 					react.createElement('span', { key: 'l', style: S.label }, t('schedule')),
@@ -216,14 +229,21 @@ window.__ModuleLoader__.load({
 					react.createElement('div', { key: task.id, style: S.card }, [
 						react.createElement('div', { key: 'r1', style: S.row }, [
 							react.createElement('p', { key: 'n', style: { margin: 0, fontSize: 14, fontWeight: 600, flex: 1, overflowWrap: 'anywhere' } }, task.name),
-							mkBtn(task.enabled ? '🟢 ' + t('enabled') : '⚪ ' + t('enabled'), () => toggle(task), Object.assign({}, S.btnGhost)),
-							mkBtn(runningId === task.id ? t('running') : '▶ ' + t('runNow'), () => runNow(task), Object.assign({}, S.btnGhost), runningId === task.id),
+							react.createElement('button', {
+								key: 'tg', type: 'button',
+								style: Object.assign({}, S.btnGhost, { display: 'inline-flex', alignItems: 'center', gap: 6, color: task.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }),
+								onClick: () => toggle(task)
+							}, [
+								react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: task.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }) }),
+								t('enabled')
+							]),
+							mkBtn(runNode, () => runNow(task), Object.assign({}, S.btnGhost), runningId === task.id),
 							mkBtn('✎', () => { setEditing(task.id); setForm({ name: task.name, prompt: task.prompt, type: task.schedule?.type || 'interval', minutes: task.schedule?.minutes || 60, hour: task.schedule?.hour || 9, minute: task.schedule?.minute || 0, dow: task.schedule?.dow || 1, enabled: !!task.enabled }); }, Object.assign({}, S.btnGhost)),
 							mkBtn(t('delete'), () => del(task), Object.assign({}, S.btnGhost, { color: 'var(--dsw-alias-state-error-primary)' }))
 						]),
 						react.createElement('p', { key: 'p', style: Object.assign({}, S.note, { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }) }, task.prompt),
 						react.createElement('div', { key: 'r2', style: S.row }, [
-							react.createElement('span', { key: 'sc', style: S.note }, '🕐 ' + scheduleText(t, task.schedule)),
+							react.createElement('span', { key: 'sc', style: S.note }, scheduleText(t, task.schedule)),
 							react.createElement('span', { key: 'nx', style: S.note }, t('nextRun') + '：' + fmtTime(task.nextRunAt)),
 							react.createElement('div', { key: 'sp', style: { flex: 1 } }),
 							react.createElement('span', { key: 'lr', style: task.lastRunOk == null ? S.note : (task.lastRunOk ? S.ok : S.err) }, t('lastRun') + '：' + fmtTime(task.lastRunAt) + (task.lastRunOk == null ? '（' + t('never') + '）' : ' · ' + (task.lastRunOk ? t('ok') : t('fail'))))
@@ -256,12 +276,19 @@ window.__ModuleLoader__.load({
 
 		// ── 侧边栏入口 + 抽屉面板（DOM 注入 sidebarCol；面板用 ReactDOM 渲染）──
 		function mountSidebar(ctx, t) {
-			const root = document.getElementById('root');
-			if (!root) return () => {};
 			let panel = null;
 			let reactRoot = null;
 			let btn = null;
 			let observer = null;
+			let started = false;
+
+			// 纯 DOM 内联 SVG 图标（原版线条风格，currentColor 跟随主题）
+			const makeIcon = (html, size) => {
+				const host = document.createElement('span');
+				host.style.cssText = `display:inline-flex;align-items:center;flex:none;width:${size}px;height:${size}px;color:var(--dsw-alias-label-secondary);`;
+				host.innerHTML = html;
+				return host;
+			};
 
 			const closePanel = () => {
 				if (!panel) return;
@@ -282,13 +309,17 @@ window.__ModuleLoader__.load({
 				head.style.cssText = 'display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);';
 				const title = document.createElement('div');
 				title.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+				const t1Row = document.createElement('div');
+				t1Row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+				t1Row.appendChild(makeIcon(ICONS.checklist, 16));
 				const t1 = document.createElement('span');
-				t1.textContent = '⏰ ' + t('title');
+				t1.textContent = t('title');
 				t1.style.cssText = 'font-size:15px;font-weight:600;color:var(--dsw-alias-label-primary);';
+				t1Row.appendChild(t1);
 				const t2 = document.createElement('span');
 				t2.textContent = t('subtitle');
 				t2.style.cssText = 'font-size:12px;color:var(--dsw-alias-label-tertiary);';
-				title.append(t1, t2);
+				title.append(t1Row, t2);
 				const spacer = document.createElement('div');
 				spacer.style.cssText = 'flex:1;';
 				const closeBtn = document.createElement('button');
@@ -326,13 +357,21 @@ window.__ModuleLoader__.load({
 
 			// 注入侧栏按钮：放在「新会话」按钮下方；样式对齐底部「设置」按钮
 			// （透明背景、圆角 12、高 34、14px 文字，hover 高亮）。
+			// dsh 的 React 重渲染会清掉注入的按钮，因此：观察按钮存活状态，
+			// 被清除后经短防抖重新注入。
+			let injectTimer = null;
 			const injectBtn = () => {
-				// HMR/重复挂载时清掉旧入口，避免出现多个按钮
-				const stale = root.querySelector('[data-dsh-auto-entry]');
-				if (stale && stale !== btn) stale.remove();
-				if (btn || root.querySelector('[data-dsh-auto-entry]')) return;
-				const col = root.querySelector('[class*="_sidebarCol"]');
-				if (!col) return;
+				if (injectTimer) return;
+				injectTimer = setTimeout(() => {
+					injectTimer = null;
+					const root = document.getElementById('root');
+					if (!root) return;
+					if (btn && !btn.isConnected) btn = null; // React 清了，允许重注入
+					const stale = root.querySelector('[data-dsh-auto-entry]');
+					if (stale && stale !== btn) stale.remove();
+					if (btn || root.querySelector('[data-dsh-auto-entry]')) return;
+					const col = root.querySelector('[class*="_sidebarCol"]');
+					if (!col) return;
 				const label = t('title');
 				const newBtn = [...col.querySelectorAll('button')].find((b) => {
 					const tx = (b.textContent || '').trim();
@@ -341,17 +380,30 @@ window.__ModuleLoader__.load({
 				const parent = newBtn && newBtn.parentElement ? newBtn.parentElement : col;
 				btn = document.createElement('button');
 				btn.setAttribute('data-dsh-auto-entry', '1');
-				btn.textContent = '⏰ ' + label;
 				btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:6px 10px;margin:0 2px 2px;border-radius:12px;border:none;background:transparent;color:var(--dsw-alias-label-primary,#f9fafb);font-size:14px;font-weight:400;cursor:pointer;font:inherit;transition:background .12s ease,color .12s ease;text-align:left;box-sizing:border-box;';
 				btn.onmouseenter = () => { btn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 				btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 				btn.onclick = openPanel;
+				btn.appendChild(makeIcon(ICONS.checklist, 15));
+				const textSpan = document.createElement('span');
+				textSpan.textContent = label;
+				btn.appendChild(textSpan);
 				if (newBtn && newBtn.nextSibling) parent.insertBefore(btn, newBtn.nextSibling);
 				else parent.appendChild(btn);
+				});
 			};
-			observer = new MutationObserver(injectBtn);
-			observer.observe(root, { childList: true, subtree: true });
-			injectBtn();
+
+			// 等待 #root 就绪后再挂载（dsh 是 React 应用，body 出现早于 root 挂载点）
+			const doMount = () => {
+				const root = document.getElementById('root');
+				if (!root) { setTimeout(doMount, 300); return; }
+				if (started) return;
+				started = true;
+				observer = new MutationObserver(injectBtn);
+				observer.observe(root, { childList: true, subtree: true });
+				injectBtn();
+			};
+			doMount();
 
 			return () => {
 				if (observer) observer.disconnect();
