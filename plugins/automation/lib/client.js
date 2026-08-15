@@ -324,18 +324,30 @@ window.__ModuleLoader__.load({
 				panel._escCleanup = onPanelEsc;
 			};
 
-			// 注入侧栏按钮（sidebarCol 出现后挂到其底部）
+			// 注入侧栏按钮：放在「新会话」按钮下方；样式对齐底部「设置」按钮
+			// （透明背景、圆角 12、高 34、14px 文字，hover 高亮）。
 			const injectBtn = () => {
+				// HMR/重复挂载时清掉旧入口，避免出现多个按钮
+				const stale = root.querySelector('[data-dsh-auto-entry]');
+				if (stale && stale !== btn) stale.remove();
+				if (btn || root.querySelector('[data-dsh-auto-entry]')) return;
 				const col = root.querySelector('[class*="_sidebarCol"]');
-				if (!col || btn || col.querySelector('[data-dsh-auto-entry]')) return;
+				if (!col) return;
+				const label = t('title');
+				const newBtn = [...col.querySelectorAll('button')].find((b) => {
+					const tx = (b.textContent || '').trim();
+					return tx === '新会话' || tx === 'New session';
+				});
+				const parent = newBtn && newBtn.parentElement ? newBtn.parentElement : col;
 				btn = document.createElement('button');
 				btn.setAttribute('data-dsh-auto-entry', '1');
-				btn.textContent = '⏰ ' + t('title');
-				btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:calc(100% - 12px);margin:6px;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;cursor:pointer;font:inherit;transition:background .12s ease,color .12s ease;text-align:left;box-sizing:border-box;';
+				btn.textContent = '⏰ ' + label;
+				btn.style.cssText = 'display:flex;align-items:center;gap:8px;width:calc(100% - 4px);height:34px;padding:6px 10px;margin:0 2px 2px;border-radius:12px;border:none;background:transparent;color:var(--dsw-alias-label-primary,#f9fafb);font-size:14px;font-weight:400;cursor:pointer;font:inherit;transition:background .12s ease,color .12s ease;text-align:left;box-sizing:border-box;';
 				btn.onmouseenter = () => { btn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 				btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 				btn.onclick = openPanel;
-				col.appendChild(btn);
+				if (newBtn && newBtn.nextSibling) parent.insertBefore(btn, newBtn.nextSibling);
+				else parent.appendChild(btn);
 			};
 			observer = new MutationObserver(injectBtn);
 			observer.observe(root, { childList: true, subtree: true });
