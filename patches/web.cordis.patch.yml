@@ -57,9 +57,3 @@
 - insert:
     - id: mcp-skill
       name: 'dsh-mcp-skill'
-
-# ── 7. dsh-super-injector（运行时注入器：dev_* 工具全家桶 + 插件管理 UI）──
-- insert:
-    - id: dsh-super-injector
-      name: '@dsh-external/dsh-super-injector'
-      config: {}

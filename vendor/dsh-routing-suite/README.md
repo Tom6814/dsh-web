@@ -10,6 +10,10 @@
     转换为 dsh `window.__ModuleLoader__.load` loader 格式；包名带 scope，
     client id 必须为 `@dsh-external/dsh-super-injector`）
   - `package.json` 的 `exports['./client'].default` 已调整为 `./lib/client.js`
+  - **加载方式**：`dsh plugin --profile web add <injector>` 通过 `dsh.bundle.patch`
+    注册为 profile 层（启动时动态应用其 `cordis.patch.yml` 的 insert 条目）。
+    ⚠️ 不要在 web patch 里再手动 insert 同名 id，否则 `duplicate loader entry id`
+    启动失败——bundle 注册是唯一加载来源。
 - **preset/**：dsh-router-standard v0.1.1 —— 思维模式路由预设（spec/react/weak 三模式 +
   近距离引导 + 单任务三锚；`dev_router_status/dev_router_mode` 自优化工具）。
   部署到 `$DSH_HOME/.agent-presets/router-standard`（agent.cordis.yml + preset.yml + *.mjs）。
