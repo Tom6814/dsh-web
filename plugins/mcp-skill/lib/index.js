@@ -8,9 +8,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { Client } from '@modelcontextprotocol/sdk/client';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { defineTool } from '@deepseek-ai/dsh-tools';
 
 export const name = 'mcp-skill-host';
-export const inject = ['webServer'];
+export const inject = ['webServer', 'tools'];
 
 function log(...args) {
 	console.log('[mcp-skill]', ...args);
@@ -37,9 +41,6 @@ function saveStore(store) {
 }
 function skillsRoot() {
 	return join(dshHome(), 'skills');
-}
-function profilePatchPath() {
-	return join(dshHome(), 'profiles', 'web', 'cordis.patch.yml');
 }
 
 // ── Skills 扫描：$DSH_HOME/skills/<name>/SKILL.md ───────────────────────
@@ -78,64 +79,9 @@ function scanSkills() {
 	return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// ── 同步 MCP 服务器到 profile/cordis.patch.yml ──────────────────────────
-const MANAGED_MARK = '# managed-by: dsh-mcp-skill (do not edit; saved from 技能与 MCP)';
-function yamlQuote(s) {
-	return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
-}
-function buildServerYaml(server) {
-	const lines = [];
-	lines.push('    - id: mcp-' + server.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'mcp-srv');
-	lines.push("      name: '@deepseek-ai/dsh-mcp-client'");
-	lines.push('      config:');
-	lines.push('        transport: ' + server.transport);
-	lines.push('        serverName: ' + yamlQuote(server.name));
-	if (server.transport === 'streamable-http') {
-		lines.push('        url: ' + yamlQuote(server.url || ''));
-		if (server.headers && Object.keys(server.headers).length) {
-			lines.push('        headers:');
-			for (const [k, v] of Object.entries(server.headers)) lines.push('          ' + yamlQuote(k) + ': ' + yamlQuote(v));
-		}
-	} else {
-		lines.push('        command: ' + yamlQuote(server.command || ''));
-		if (Array.isArray(server.args) && server.args.length) {
-			lines.push('        args:');
-			for (const a of server.args) lines.push('          - ' + yamlQuote(a));
-		}
-		if (server.env && Object.keys(server.env).length) {
-			lines.push('        env:');
-			for (const [k, v] of Object.entries(server.env)) lines.push('          ' + yamlQuote(k) + ': ' + yamlQuote(v));
-		}
-		lines.push('        cwd: /workspace');
-		lines.push('        failOnStartupError: false');
-	}
-	return lines.join('\n');
-}
-function syncProfilePatch(servers) {
-	const file = profilePatchPath();
-	let content = '';
-	if (existsSync(file)) content = readFileSync(file, 'utf8');
-	// 移除旧的 managed 段（从标记到下一个顶层 `- insert:` 或文件尾）
-	const markerIdx = content.indexOf(MANAGED_MARK);
-	if (markerIdx >= 0) {
-		let start = content.lastIndexOf('\n', markerIdx - 1) + 1;
-		const rest = content.slice(markerIdx);
-		const nextTop = rest.indexOf('\n- insert:');
-		content = content.slice(0, start) + (nextTop >= 0 ? rest.slice(nextTop + 1) : '');
-	}
-	const enabled = servers.filter((s) => s.enabled);
-	if (enabled.length) {
-		const block = '\n' + MANAGED_MARK + '\n- insert:\n' + enabled.map(buildServerYaml).join('\n') + '\n';
-		// 追加到文件末尾（若文件有内容且不以换行结尾先补换行）
-		if (content.length && !content.endsWith('\n')) content += '\n';
-		content += block;
-	}
-	mkdirSync(join(dshHome(), 'profiles', 'web'), { recursive: true });
-	const tmp = file + '.tmp';
-	writeFileSync(tmp, content, 'utf8');
-	renameSync(tmp, file);
-	log('sync: 已写入 ' + enabled.length + ' 个启用 MCP 服务器到 profile/cordis.patch.yml（重启生效）');
-}
+// ── MCP 持久化：热插拔已覆盖重启场景（启动时 applyHot 自动重连）─────────
+// 不再写入 profile/cordis.patch.yml：运行时动态连接由本插件管理，
+// 重启后由 applyHot(loadStore().servers) 恢复，无需修改 profile 配置。
 
 // ── Cursor 格式导入 ─────────────────────────────────────────────────────
 // Cursor: { "mcpServers": { "<name>": { command, args, env } | { url, headers } } }
@@ -158,7 +104,110 @@ function parseCursorJson(text) {
 	return servers;
 }
 
+// ── 热插拔：动态 MCP 客户端（保存/启停立即生效，无需重启）──────────────
+// 用官方 MCP SDK 在运行时连接服务器，把工具注册到 ctx.tools（命名与官方
+// mcp-client 一致：mcp__<server>__<tool>），停止时调用 register 返回的
+// disposer 注销并断开连接。同时保留 cordis.patch.yml 持久化（重启后仍生效）。
+
+function normalizeToolName(s) {
+	return String(s || '').replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'tool';
+}
+/** MCP JSON Schema 参数 → dsh defineTool 的 parameters spec 格式。 */
+function mcpSchemaToSpec(inputSchema) {
+	const spec = {};
+	const props = (inputSchema && inputSchema.properties) || {};
+	const required = new Set((inputSchema && inputSchema.required) || []);
+	for (const [name, ps] of Object.entries(props)) {
+		if (!ps || typeof ps !== 'object') continue;
+		let type = ps.type;
+		if (type === 'array') type = 'array';
+		else if (type === 'object') type = 'object';
+		else if (!['string', 'number', 'integer', 'boolean'].includes(type)) type = 'string';
+		const entry = { type, description: ps.description || '' };
+		if (required.has(name)) entry.required = true;
+		spec[name] = entry;
+	}
+	return spec;
+}
+function mcpResultToText(result) {
+	const content = (result && result.content) || [];
+	const parts = content.map((c) => {
+		if (c.type === 'text') return c.text;
+		if (c.type === 'image') return `[image ${c.mimeType || 'image/png'} ${(c.data || '').length ? (c.data.length * 0.75 | 0) + 'B' : ''}]`;
+		return JSON.stringify(c).slice(0, 2000);
+	}).filter(Boolean);
+	const text = parts.join('\n');
+	return text || JSON.stringify(result).slice(0, 4000);
+}
+
 export function apply(ctx) {
+	// 活动连接：serverName -> { client, transport, disposers[], snapshot }
+	const connections = new Map();
+
+	async function startServer(server) {
+		let client;
+		let transport;
+		try {
+			if (server.transport === 'streamable-http') {
+				transport = new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers: server.headers || {} } });
+			} else {
+				const env = server.env && Object.keys(server.env).length ? { ...process.env, ...server.env } : undefined;
+				const cwd = process.env.PREVIEW_ROOT || '/workspace';
+				transport = new StdioClientTransport({ command: server.command, args: server.args || [], env, cwd });
+			}
+			client = new Client({ name: 'dsh-mcp-skill', version: '0.1.0' });
+			await client.connect(transport);
+			const listed = await client.listTools();
+			const disposers = [];
+			for (const tool of listed.tools || []) {
+				const publicName = 'mcp__' + normalizeToolName(server.name) + '__' + normalizeToolName(tool.name);
+				const def = defineTool({
+					name: publicName,
+					description: (tool.description || '').slice(0, 500) || `MCP 工具 ${tool.name}（服务器 ${server.name}）`,
+					parameters: mcpSchemaToSpec(tool.inputSchema),
+					output: {
+						schema: { type: 'object', additionalProperties: false, properties: { content: { type: 'string' } } },
+						render: (_a, v) => [{ type: 'text', text: String(v.content || '') }],
+						presentationMeta: () => ({ badge: '🔌 ' + server.name })
+					},
+					timeoutMs: 120_000,
+					isConcurrencySafe: () => true,
+					async execute(args) {
+						const out = await client.callTool({ name: tool.name, arguments: args || {} });
+						return { content: mcpResultToText(out) };
+					}
+				});
+				try { disposers.push(ctx.tools.register(def)); } catch (e) { log('工具注册失败 ' + publicName + ': ' + e.message); }
+			}
+			connections.set(server.name, { client, transport, disposers, snapshot: JSON.stringify(server) });
+			log(`热插拔: 「${server.name}」已连接，注册 ${disposers.length} 个工具（无需重启）`);
+		} catch (e) {
+			if (client && transport) { try { await client.close(); } catch { /* ignore */ } try { await transport.close(); } catch { /* ignore */ } }
+			throw new Error(`连接「${server.name}」失败：${e?.message ?? e}`);
+		}
+	}
+	async function stopServer(name) {
+		const conn = connections.get(name);
+		if (!conn) return;
+		for (const d of conn.disposers) { try { d(); } catch { /* ignore */ } }
+		try { await conn.client.close(); } catch { /* ignore */ }
+		try { await conn.transport.close(); } catch { /* ignore */ }
+		connections.delete(name);
+		log(`热插拔: 「${name}」已断开，工具已注销`);
+	}
+	/** 增量应用：启动新增/变更，断开移除/停用。 */
+	async function applyHot(servers) {
+		const wanted = new Map(servers.filter((s) => s.enabled).map((s) => [s.name, s]));
+		for (const name of [...connections.keys()]) {
+			const server = wanted.get(name);
+			if (!server) { await stopServer(name); continue; }
+			if (connections.get(name).snapshot !== JSON.stringify(server)) { await stopServer(name); await startServer(server).catch((e) => log(e.message)); }
+		}
+		for (const [name, server] of wanted) {
+			if (!connections.has(name)) { await startServer(server).catch((e) => log(e.message)); }
+		}
+	}
+
 	const readBody = (req) => new Promise((resolve, reject) => {
 		let data = '';
 		req.on('data', (c) => { data += c; if (data.length > 2e6) { reject(new Error('body too large')); req.destroy(); } });
@@ -178,7 +227,13 @@ export function apply(ctx) {
 		handler: async (req, res) => {
 			try {
 				const store = loadStore();
-				sendJson(res, 200, { ok: true, servers: store.servers, skills: scanSkills(), imports: store.imports, patchPath: profilePatchPath() });
+				sendJson(res, 200, {
+					ok: true,
+					servers: store.servers,
+					skills: scanSkills(),
+					imports: store.imports,
+					connected: [...connections.entries()].map(([name, c]) => ({ name, tools: c.disposers.length }))
+				});
 			} catch (e) {
 				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
 			}
@@ -206,9 +261,9 @@ export function apply(ctx) {
 				if (b.enabled !== void 0) server.enabled = !!b.enabled;
 				if (!existing) store.servers.push(server);
 				saveStore(store);
-				syncProfilePatch(store.servers);
-				log('server: 已保存「' + server.name + '」');
-				sendJson(res, 200, { ok: true, server, note: '已保存，重启服务后生效' });
+				await applyHot(store.servers);
+				log('server: 已保存「' + server.name + '」（热插拔已生效）');
+				sendJson(res, 200, { ok: true, server, note: '已保存并热插拔：当前会话立即可用' });
 			} catch (e) {
 				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
 			}
@@ -224,8 +279,8 @@ export function apply(ctx) {
 				const store = loadStore();
 				store.servers = store.servers.filter((s) => s.id !== b.id);
 				saveStore(store);
-				syncProfilePatch(store.servers);
-				log('server: 已删除');
+				await applyHot(store.servers);
+				log('server: 已删除（热插拔已生效）');
 				sendJson(res, 200, { ok: true });
 			} catch (e) {
 				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
@@ -244,8 +299,8 @@ export function apply(ctx) {
 				if (!s) return sendJson(res, 404, { ok: false, error: '服务器不存在' });
 				s.enabled = !s.enabled;
 				saveStore(store);
-				syncProfilePatch(store.servers);
-				log('server: 「' + s.name + '」' + (s.enabled ? '启用' : '停用'));
+				await applyHot(store.servers);
+				log('server: 「' + s.name + '」' + (s.enabled ? '启用' : '停用') + '（热插拔已生效）');
 				sendJson(res, 200, { ok: true, enabled: s.enabled });
 			} catch (e) {
 				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
@@ -283,8 +338,8 @@ export function apply(ctx) {
 				if (b.label) store.imports.unshift({ at: Date.now(), label: b.label, count: imported.length });
 				store.imports = store.imports.slice(0, 20);
 				saveStore(store);
-				syncProfilePatch(store.servers);
-				log('import-cursor: 导入 ' + added + ' 个（跳过 ' + skipped + '）');
+				await applyHot(store.servers);
+				log('import-cursor: 导入 ' + added + ' 个（跳过 ' + skipped + '）（热插拔已生效）');
 				sendJson(res, 200, { ok: true, added, skipped, total: imported.length });
 			} catch (e) {
 				sendJson(res, 200, { ok: false, error: String(e?.message ?? e) });
@@ -354,4 +409,10 @@ export function apply(ctx) {
 			}
 		}
 	});
+
+	// 启动时热连接所有已启用的 MCP 服务器（无需重启）
+	applyHot(loadStore().servers);
+
+	// 插件卸载时断开所有连接、注销全部工具
+	return () => { for (const name of [...connections.keys()]) stopServer(name); };
 }

@@ -81,12 +81,13 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   任务（复用同一模型配置）；支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、
   运行历史查看。
 - **技能与 MCP（侧栏）**：左侧栏「技能与 MCP」入口（自动化下方）打开管理面板——
-  - **MCP 服务器**：新增/编辑/删除/启停（stdio 命令或 streamable-http URL），保存后写入
-    profile 的 `cordis.patch.yml`（`# managed-by: dsh-mcp-skill` 段），重启生效；
+  - **MCP 服务器**：新增/编辑/删除/启停（stdio 命令或 streamable-http URL）；**热插拔**：
+    保存/启停后立即连接或断开并注册/注销工具（`mcp__<服务器>__<工具>`），无需重启；
+    面板显示「已热连接 N 工具」状态；重启后自动恢复连接；
   - **Cursor 格式导入**：粘贴 `.cursor/mcp.json` 内容或填工作区路径（如 `.cursor/mcp.json`），
-    自动解析 `mcpServers`（command/args/env 与 url/headers 均支持）批量导入；
+    自动解析 `mcpServers`（command/args/env 与 url/headers 均支持）批量导入，导入即热生效；
   - **Skills**：管理 `$DSH_HOME/skills/<name>/SKILL.md`（Claude 风格技能根），新建/删除/启停，
-    保存即出现在输入框「/」技能菜单。
+    保存即出现在输入框「/」技能菜单（dsh 技能文件监听，实时生效）。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。

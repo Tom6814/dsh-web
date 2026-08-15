@@ -138,6 +138,7 @@ window.__ModuleLoader__.load({
 		function McpSkillTab({ t }) {
 			const [servers, setServers] = useState([]);
 			const [skills, setSkills] = useState([]);
+			const [connected, setConnected] = useState([]);
 			const [form, setForm] = useState({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '', enabled: true });
 			const [editingId, setEditingId] = useState(null);
 			const [cursorJson, setCursorJson] = useState('');
@@ -147,7 +148,7 @@ window.__ModuleLoader__.load({
 			const [msg, setMsg] = useState(null);
 			const [msgOk, setMsgOk] = useState(false);
 
-			const refresh = () => fetch('/api/mcp-skill/list').then((r) => r.json()).then((d) => { if (d.ok) { setServers(d.servers || []); setSkills(d.skills || []); } });
+			const refresh = () => fetch('/api/mcp-skill/list').then((r) => r.json()).then((d) => { if (d.ok) { setServers(d.servers || []); setSkills(d.skills || []); setConnected(d.connected || []); } });
 			useEffect(() => { refresh(); }, []);
 			const toast = (text, ok) => { setMsg(text); setMsgOk(!!ok); setTimeout(() => { setMsg(null); setMsgOk(false); }, 5000); };
 			const api = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
@@ -200,6 +201,7 @@ window.__ModuleLoader__.load({
 						react.createElement('span', { key: 'ic', style: S.icon }, svgIcon(ICONS.server, 13)),
 						react.createElement('span', { key: 'n', style: { fontSize: 13, fontWeight: 600, flex: 1, overflowWrap: 'anywhere' } }, s.name),
 						react.createElement('span', { key: 'ty', style: Object.assign({}, S.note, { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 999, padding: '1px 8px' }) }, s.transport === 'streamable-http' ? 'HTTP' : 'stdio'),
+						(() => { const c = connected.find((x) => x.name === s.name); return c ? react.createElement('span', { key: 'hc', style: Object.assign({}, S.ok, { display: 'inline-flex', alignItems: 'center', gap: 5 }) }, [react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: 'var(--dsw-alias-state-success-primary)' }) }), '已热连接 ' + c.tools + ' 工具']) : null; })(),
 						react.createElement('button', { key: 'tg', type: 'button', style: Object.assign({}, S.btnGhost, { display: 'inline-flex', alignItems: 'center', gap: 6, color: s.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }), onClick: () => toggleServer(s) }, [
 							react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: s.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }) }),
 							t('enabled')
