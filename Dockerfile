@@ -54,6 +54,7 @@ COPY patches/ /opt/dsh-zeabur/patches/
 COPY plugin-market/ /opt/dsh-zeabur/plugin-market/
 COPY plugins/ /opt/dsh-zeabur/plugins/
 COPY presets/ /opt/dsh-zeabur/presets/
+COPY vendor/ /opt/dsh-zeabur/vendor/
 COPY start.sh /usr/local/bin/start-dsh
 RUN chmod +x /usr/local/bin/start-dsh
 # 插件 import @deepseek-ai/* 官方包：把 harness 的 node_modules 链接到插件共享根，
@@ -67,6 +68,8 @@ RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/image-gen || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill || true
+# dsh-routing-suite：运行时注入器（dev_* 工具全家桶）；预设由 start.sh 部署
+RUN dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector || true
 
 # 端口声明：Zeabur 会注入 $PORT（默认 8080），nginx 实际监听 $PORT
 EXPOSE 8080

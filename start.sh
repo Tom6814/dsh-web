@@ -53,6 +53,17 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    mcp-skill: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill
   fi
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/@dsh-external/dsh-super-injector" ]; then
+    echo "    dsh-super-injector: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector
+  fi
+
+  # ── 1.4 router-standard 路由预设（dsh-routing-suite）──
+  if [ ! -f "$DSH_HOME/.agent-presets/router-standard/agent.cordis.yml" ]; then
+    echo "  router-standard 预设：首次部署…"
+    mkdir -p "$DSH_HOME/.agent-presets"
+    cp -R /opt/dsh-zeabur/vendor/dsh-routing-suite/preset/preset "$DSH_HOME/.agent-presets/router-standard"
+  fi
 
   # ── 1.5 部署 Floatboat 风格 agent preset 到用户预设目录 ──
   #        dsh 的 agent-presets 服务默认扫描 $DSH_HOME/.agent-presets/（user trust），

@@ -63,7 +63,8 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 ├── plugins/image-gen/          # 图片生成插件（对话内生成图片，gpt-image-1/2 等）
 ├── plugins/model-extras/       # 模型增强插件（OpenAI Responses API / 自定义模型）
 ├── plugins/mcp-skill/          # 技能与 MCP 管理（侧栏入口 + Cursor mcp.json 导入）
-└── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
+├── presets/floatboat/          # 「Floatboat 风格」agent preset（部署到用户预设目录）
+└── vendor/dsh-routing-suite/   # 第三方：dsh-super-injector（运行时注入器）+ router-standard 路由预设
 ```
 
 ## 说明
@@ -91,6 +92,17 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。
+- **dsh-routing-suite（vendored，MIT）**：
+  - **dsh-super-injector v0.3.3**：运行时注入器，`dev_*` 工具全家桶——注入/卸载/热重载/
+    侧挂转正/脚手架/构建发布/插件自检（`dev_inject_plugin`、`dev_uninject_plugin`、
+    `dev_reload_package`、`dev_plugin_status`、`dev_scaffold_plugin` 等 14 个），
+    junction 链接 + loader.create 免重启装配；设置页「插件」区提供插件管理 UI
+    （列表/卸载/拖入内化）；清单持久化重启自动恢复。
+  - **router-standard 预设 v0.1.1**：任务感知思维模式路由（spec/react/weak 三模式 +
+    近距离引导 + 单任务三锚）。新建会话选择 **Router Standard (experimental)** 预设，
+    生成类任务自动 react、维护类任务自动 spec；AI 自优化工具
+    `dev_router_status` / `dev_router_mode` / `dev_mode_subagent`。
+  - 构建方式见 `vendor/dsh-routing-suite/README.md`。
 - **导出**：右上角「导出」按钮二级菜单——导出项目（工作区打包 zip 直接下载，不落盘，
   自动排除 node_modules/.git/dist 等）、导出会话日志（复用官方 Session log）。
 - **预览面板**：对话中的 localhost 链接与文件在右侧分栏预览（可拖宽、缩放、移动端全屏）；
