@@ -136,6 +136,7 @@ window.__ModuleLoader__.load({
 		}
 
 		function apply(ctx) {
+			// 图片生成配置：官方原生设置页没有此能力，保留独立 tab（原生设计语言）。
 			ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'image-gen: dictionaries');
 			const t = ctx.locale.bind(NS);
 			ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({

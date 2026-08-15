@@ -293,6 +293,50 @@ export function apply(ctx) {
 		}
 	});
 
+	// ── DeepSeek API Key（写入 $DSH_HOME/.credentials.yaml，官方 Models 页同源）──
+	const credentialsPath = () => join(dshHome(), '.credentials.yaml');
+	function readCredentials() {
+		try {
+			const raw = readFileSync(credentialsPath(), 'utf8');
+			const out = {};
+			for (const line of raw.split('\n')) {
+				const m = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+				if (m) out[m[1]] = m[2].trim();
+			}
+			return out;
+		} catch { return {}; }
+	}
+	function writeCredentials(creds) {
+		mkdirSync(dshHome(), { recursive: true });
+		const lines = Object.entries(creds).map(([k, v]) => `${k}: ${v}`);
+		const tmp = credentialsPath() + '.tmp';
+		writeFileSync(tmp, lines.join('\n') + '\n', 'utf8');
+		renameSync(tmp, credentialsPath());
+	}
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/model-extras/deepseek-key',
+		handler: async (req, res) => {
+			try {
+				if (req.method === 'GET') {
+					const v = readCredentials().DEEPSEEK_API_KEY || '';
+					return sendJson(res, 200, { ok: true, configured: v.length > 0, apiKey: v ? maskKey(v) : '' });
+				}
+				const body = await bodyOf(req);
+				const creds = readCredentials();
+				if (body.apiKey !== void 0 && !String(body.apiKey).startsWith('****')) {
+					creds.DEEPSEEK_API_KEY = String(body.apiKey).trim();
+					writeCredentials(creds);
+					log('deepseek-key: 已写入 .credentials.yaml');
+				}
+				const v = creds.DEEPSEEK_API_KEY || '';
+				return sendJson(res, 200, { ok: true, configured: v.length > 0, apiKey: v ? maskKey(v) : '' });
+			} catch (e) {
+				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
+			}
+		}
+	});
+
 	// 模型自动获取（UI 用）：探测 {baseURL}/models
 	ctx.webServer.register({
 		kind: 'exact',

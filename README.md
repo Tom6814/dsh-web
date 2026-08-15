@@ -67,18 +67,21 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
 
 ## 说明
 
-- **自定义模型 / OpenAI Responses API（Codex、gpt-5）**：「设置 → 插件 → 模型增强」填写任意
-  OpenAI 兼容的 API 地址与 Key，点「自动获取模型」从 `GET /models` 拉取模型列表，保存后即可在
-  会话的模型选择器中选 `openai-responses` 提供方（走 `POST /responses`，支持工具调用与流式）。
+- **模型配置走官方原生**：「设置 → 模型」配置 DeepSeek API Key 或添加任意 OpenAI 兼容
+  自定义提供方（官方支持）。额外提供 **OpenAI Responses API 适配器**（Codex / gpt-5 的
+  `/v1/responses` 协议，原生仅支持 chat/completions）：在官方 Models 页选择 `openai-responses`
+  提供方后，把端点配置写入 `$DSH_HOME/model-extras.json`（baseURL / apiKey / models），
+  /models 自动获取模型列表。
 - **对话内生成图片（GPT Image 1/2 等）**：「设置 → 插件 → 图片生成」配置图片端点（OpenAI 兼容
   `/images/generations`）与 Key，自动获取图片模型（gpt-image-1、gpt-image-2、dall-e-3…）。
   之后直接让 Agent 生成图片——工具 `generate_image` 会把图片保存到工作区 `images/` 并可预览。
+- **自动化（主页侧栏）**：左侧栏底部「⏰ 自动化」入口（类 TRAE 任务栏），点击打开抽屉面板，
+  可创建定时任务——间隔分钟、每天几点、每周周几几点，到点由 dsh 自带 headless 运行器执行
+  任务（复用同一模型配置）；支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、
+  运行历史查看。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。
-- **自动化（对齐 Trae Work）**：「设置 → 插件 → 自动化」可创建定时任务——间隔分钟、
-  每天几点、每周周几几点，到点由 dsh 自带 headless 运行器执行任务（复用同一模型配置）；
-  支持「✨ AI 优化」把一句话需求扩展为结构化任务指令、立即运行、运行历史查看。
 - **导出**：右上角「导出」按钮二级菜单——导出项目（工作区打包 zip 直接下载，不落盘，
   自动排除 node_modules/.git/dist 等）、导出会话日志（复用官方 Session log）。
 - **预览面板**：对话中的 localhost 链接与文件在右侧分栏预览（可拖宽、缩放、移动端全屏）；
@@ -86,11 +89,7 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
   二进制给出下载页）。
 
 - 镜像基于 Node 22 LTS，内置 nginx 反向代理（`dsh` 出于安全设计不支持 `0.0.0.0` 直绑）。
-- 首次使用：添加工作区 → 网页内目录树选目录 → 开始对话；模型配置在 设置 → Models。
-- **预览面板**：右上角（Session Log 旁）「预览」胶囊按钮开关；对话中的 `localhost:端口`
-  链接、**文件提及（MD / HTML / 图片 / 代码等）** 会自动在面板内打开（端口反代到容器内
-  `127.0.0.1:<port>`，支持 WebSocket；MD 由 host 渲染为阅读页，代码文件按纯文本显示）。
-  文件提及支持绝对路径（如 `/tmp/xxx.html`，host 会映射到容器工作区或临时目录，越界拒绝）。
+- 首次使用：添加工作区 → 网页内目录树选目录 → 开始对话；模型配置在 设置 → 模型。
   外部 http(s) 链接保持默认新标签页打开。`PREVIEW_ROOT` 可覆盖文件预览根（默认 `/workspace`），
   `PREVIEW_EXTRA_ROOTS` 追加额外可读根（逗号分隔；未设置时默认含容器临时目录）。
 - **插件启停**：设置 → 插件 → 「插件列表」展开任意插件卡片，详情里带「启用 / 停用」按钮，
