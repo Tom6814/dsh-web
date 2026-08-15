@@ -53,10 +53,11 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    mcp-skill: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill
   fi
-  if [ ! -d "$DSH_HOME/profiles/web/node_modules/@dsh-external/dsh-super-injector" ]; then
-    echo "    dsh-super-injector: 首次安装…"
-    dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector
-  fi
+  # dsh-super-injector：无条件重装——它是 bundle 层（启动时要 import 其入口），
+  # 旧持久卷里的链接可能指向失效路径导致 Cannot find module；plugin add 幂等，
+  # 每次启动重跑会把 link 路径刷新到 /opt/dsh-zeabur/vendor。
+  echo "    dsh-super-injector: 确保装配…"
+  dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector || echo "    ! injector 装配失败（不影响启动）"
 
   # ── 1.4 router-standard 路由预设（dsh-routing-suite）──
   if [ ! -f "$DSH_HOME/.agent-presets/router-standard/agent.cordis.yml" ]; then
