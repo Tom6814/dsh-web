@@ -49,6 +49,17 @@ echo "    profile : $DSH_PROFILE"
 echo "    DSH_HOME: $DSH_HOME"
 
 if [ "$DSH_PROFILE" = "web" ]; then
+  # ── 0. 清理持久卷里的旧部署残留（防止旧代码/旧配置跨部署存活）──
+  #        早期部署可能在 DSH_HOME 留下旧版 patch 或旧版插件副本；
+  #        每次启动先清除，再由下方逻辑从镜像重装/重建（始终使用当前镜像版本）。
+  rm -f "$DSH_HOME/web.cordis.patch.yml" 2>/dev/null || true
+  rm -rf "$DSH_HOME/profiles/web/node_modules/dsh-plugin-market" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-floatboat-style" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-automation" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-image-gen" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-model-extras" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-github-sync" \
+         "$DSH_HOME/profiles/web/node_modules/dsh-mcp-skill" 2>/dev/null || true
   # ── 1. 确保插件已安装（挂载新持久化卷后首次启动需要补装）──
   #        镜像构建时已预装；若卷覆盖了 /data 则在此兜底。
   if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-plugin-market" ]; then
