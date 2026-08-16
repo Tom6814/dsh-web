@@ -239,7 +239,6 @@ window.__ModuleLoader__.load({
 							react.createElement('span', { key: 'd', style: Object.assign({}, S.dot, { background: s.enabled ? 'var(--dsw-alias-state-success-primary)' : 'var(--dsw-alias-label-tertiary)' }) }),
 							t('enabled')
 						]),
-						react.createElement(Btn, { key: 'e', t, ghost: true, onClick: () => editServer(s) }, t('edit')),
 						react.createElement(Btn, { key: 'd', t, ghost: true, onClick: () => delServer(s) }, t('delete'))
 					]),
 					react.createElement('p', { key: 'cmd', style: Object.assign({}, S.note, { overflowWrap: 'anywhere' }) }, s.transport === 'streamable-http' ? (s.url || '') : (s.command || '') + ' ' + (s.args || []).join(' ')),
@@ -251,46 +250,11 @@ window.__ModuleLoader__.load({
 				msg ? react.createElement('p', { key: 'msg', style: msgOk ? S.ok : S.err }, msg) : null,
 
 				// MCP 服务器
-				react.createElement(Section, { key: 'm', icon: ICONS.server, title: t('secMcp'), action: react.createElement(Btn, { t, primary: true, onClick: () => { setEditingId(null); setForm({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '', enabled: true }); } }, [svgIcon(ICONS.plus, 12), t('addServer')]) }, [
+				react.createElement(Section, { key: 'm', icon: ICONS.server, title: t('secMcp') }, [
 					servers.length === 0 ? react.createElement('p', { key: 'e', style: S.note }, t('emptyServers')) : serverRows,
 					react.createElement('div', { key: 'cv', style: S.row }, [
 						react.createElement(Btn, { key: 't', t, ghost: true, onClick: toggleCursorView }, cursorView ? '隐藏 Cursor 视图' : '以 Cursor 格式显示'),
 						cursorView && cursorExport ? react.createElement('pre', { key: 'o', style: Object.assign({}, S.note, { background: 'var(--dsw-alias-bg-layer-2)', borderRadius: 10, padding: '8px 10px', overflow: 'auto', maxHeight: 200, fontSize: 11.5, lineHeight: '16px', whiteSpace: 'pre' }) }, cursorExport) : null
-					]),
-					react.createElement('div', { key: 'form', style: { border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 } }, [
-						react.createElement('div', { key: 'r1', style: S.row }, [
-							react.createElement('span', { key: 'l', style: S.label }, t('name')),
-							react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: t('serverNamePlaceholder'), value: form.name, onChange: set('name') })
-						]),
-						react.createElement('div', { key: 'r2', style: S.row }, [
-							react.createElement('span', { key: 'l', style: S.label }, t('type')),
-							['stdio', 'streamable-http'].map((v) => react.createElement('button', { key: v, type: 'button', style: Object.assign({}, S.btnGhost, { borderColor: form.transport === v ? 'var(--dsw-alias-state-business-primary)' : 'var(--dsw-alias-border-l2)', color: form.transport === v ? 'var(--dsw-alias-state-business-primary)' : undefined }), onClick: () => setForm((f) => ({ ...f, transport: v })) }, v === 'streamable-http' ? 'HTTP' : 'stdio')),
-							react.createElement('label', { key: 'en', style: Object.assign({}, S.note, { display: 'flex', gap: 6, alignItems: 'center', marginLeft: 8 }) }, [
-								react.createElement('input', { key: 'c', type: 'checkbox', checked: form.enabled, onChange: (e) => setForm((f) => ({ ...f, enabled: e.target.checked })) }),
-								t('enabled')
-							])
-						]),
-						form.transport === 'streamable-http' ? react.createElement('div', { key: 'r3', style: S.row }, [
-							react.createElement('span', { key: 'l', style: S.label }, t('url')),
-							react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: 'https://mcp.example.com/sse', value: form.url, onChange: set('url') })
-						]) : [
-							react.createElement('div', { key: 'r3', style: S.row }, [
-								react.createElement('span', { key: 'l', style: S.label }, t('command')),
-								react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: t('cmdPlaceholder'), value: form.command, onChange: set('command') })
-							]),
-							react.createElement('div', { key: 'r4', style: S.row }, [
-								react.createElement('span', { key: 'l', style: S.label }, t('args')),
-								react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: '-y, @modelcontextprotocol/server-filesystem, /workspace', value: form.args, onChange: set('args') })
-							]),
-							react.createElement('div', { key: 'r5', style: S.row }, [
-								react.createElement('span', { key: 'l', style: S.label }, t('env')),
-								react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: 'KEY=VALUE, FOO=bar', value: form.env, onChange: set('env') })
-							])
-						],
-						react.createElement('div', { key: 'f', style: S.row }, [
-							react.createElement(Btn, { key: 's', t, primary: true, disabled: busy, onClick: saveServer }, t('save')),
-							editingId ? react.createElement(Btn, { key: 'c', t, onClick: () => { setEditingId(null); setForm({ name: '', transport: 'stdio', command: '', args: '', env: '', url: '', enabled: true }); } }, '✕') : null
-						])
 					])
 				]),
 
