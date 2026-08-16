@@ -52,6 +52,10 @@ ENV DSH_HOME=/data/dsh
 COPY scripts/ /opt/dsh-zeabur/scripts/
 RUN node /opt/dsh-zeabur/scripts/patch-picker.js
 RUN node /opt/dsh-zeabur/scripts/patch-require-shim.js
+RUN node /opt/dsh-zeabur/scripts/patch-picker-auto.js
+
+# 云端目录选择固定为服务端浏览（browse）；本地开发可不设（auto 原生）
+ENV DSH_DIRECTORY_PICKER=browse
 
 # dsh 的「调用目录」即默认 workspace root，这里固定为 /workspace
 WORKDIR /workspace
