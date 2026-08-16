@@ -255,7 +255,7 @@ export function apply(ctx) {
 			saveCfg(cfg);
 			log(`OAuth 绑定成功：@${cfg.user || '?'} ${cfg.email ? '(' + cfg.email + ')' : ''}`);
 			res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-			res.end('<!doctype html><html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f6f7f9"><div style="text-align:center;padding:32px;border-radius:16px;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.08)"><div style="font-size:40px">✅</div><h2 style="margin:8px 0;color:#111">GitHub 绑定成功</h2><p style="color:#666">@' + (cfg.user || '') + (cfg.email ? ' · ' + cfg.email : '') + '</p><p style="color:#999">可以关闭此页面回到 DSH，刷新后在会话底部选择仓库。</p></div></body></html>');
+			res.end('<!doctype html><html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f6f7f9"><div style="text-align:center;padding:32px;border-radius:16px;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.08)"><div style="font-size:40px">✅</div><h2 style="margin:8px 0;color:#111">GitHub 绑定成功</h2><p style="color:#666">@' + (cfg.user || '') + (cfg.email ? ' · ' + cfg.email : '') + '</p><p style="color:#999">正在返回 DSH…</p></div><script>setTimeout(function(){ window.location.replace("/"); }, 1200);</script></body></html>');
 		} catch (e) {
 			log('OAuth 回调失败：' + String(e?.message ?? e));
 			res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
