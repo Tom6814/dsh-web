@@ -86,8 +86,9 @@ window.__ModuleLoader__.load({
 			}
 
 			function mk(styles) { const d = document.createElement('div'); d.style.cssText = styles; return d; }
-			function selectEl() {
-				const s = document.createElement('select');
+			function selectEl(name) {
+				const s = document.createElement('select'); s.name = name || '';
+				s.name = name; s.id = name;
 				s.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;padding:0 6px;outline:none;max-width:150px;min-width:0;flex:0 1 auto;';
 				return s;
 			}
@@ -147,7 +148,7 @@ window.__ModuleLoader__.load({
 						row.appendChild(ml);
 						const panel = mk('display:none;flex:1;min-width:230px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
-						const ghp = document.createElement('input'); ghp.placeholder = 'GHP'; ghp.type = 'password';
+						const ghp = document.createElement('input'); ghp.placeholder = 'GHP'; ghp.type = 'password'; ghp.name = 'dsh-github-sync-ghp'; ghp.id = 'dsh-github-sync-ghp';
 						ghp.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;padding:0 8px;flex:1;min-width:110px;outline:none;';
 						const hint = mk(''); hint.textContent = t_.ghpHint; hint.style.cssText = 'font-size:11px;opacity:.7;flex-basis:100%;';
 						const ok = btnEl(t_.save, true);
@@ -171,8 +172,8 @@ window.__ModuleLoader__.load({
 					row.appendChild(who); row.appendChild(lg);
 
 					const ws = info.wsConfig || null;
-					const repoSel = selectEl();
-					const branchSel = selectEl();
+					const repoSel = selectEl('dsh-github-sync-repo');
+					const branchSel = selectEl('dsh-github-sync-branch');
 					const loadBranches = (repo, defBranch) => {
 						branchSel.textContent = '';
 						branchSel.appendChild(new Option(t_.branch + '…', ''));
