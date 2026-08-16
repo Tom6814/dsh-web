@@ -33,6 +33,10 @@ window.__ModuleLoader__.load({
 			dow0: '周日', dow1: '周一', dow2: '周二', dow3: '周三', dow4: '周四', dow5: '周五', dow6: '周六',
 			hour: '时', minute: '分',
 			enabled: '启用',
+						model: '固定模型',
+						modelDefault: '（默认模型）',
+						workspace: '工作区',
+						workspacePlaceholder: '留空则自动创建 ~/.dsh/automation-workspaces/<任务>',
 			save: '保存',
 			cancel: '取消',
 			delete: '删除',
@@ -67,6 +71,10 @@ window.__ModuleLoader__.load({
 			dow0: 'Sun', dow1: 'Mon', dow2: 'Tue', dow3: 'Wed', dow4: 'Thu', dow5: 'Fri', dow6: 'Sat',
 			hour: 'h', minute: 'm',
 			enabled: 'Enabled',
+						model: 'Model',
+						modelDefault: '(default model)',
+						workspace: 'Workspace',
+						workspacePlaceholder: 'empty = auto ~/.dsh/automation-workspaces/<task>',
 			save: 'Save',
 			cancel: 'Cancel',
 			delete: 'Delete',
@@ -124,16 +132,18 @@ window.__ModuleLoader__.load({
 			const [tasks, setTasks] = useState([]);
 			const [runs, setRuns] = useState([]);
 			const [editing, setEditing] = useState(null);
-			const [form, setForm] = useState({ name: '', prompt: '', type: 'interval', minutes: 60, hour: 9, minute: 0, dow: 1, enabled: true });
+			const [form, setForm] = useState({ name: '', prompt: '', type: 'interval', minutes: 60, hour: 9, minute: 0, dow: 1, enabled: true, model: '', cwd: '' });
 			const [busy, setBusy] = useState(false);
 			const [optimizing, setOptimizing] = useState(false);
 			const [runningId, setRunningId] = useState(null);
 			const [msg, setMsg] = useState(null);
+			const [models, setModels] = useState([]);
 
 			const refresh = useCallback(() => {
 				fetch('/api/automation/list').then((r) => r.json()).then((d) => { if (d.ok) { setTasks(d.tasks); setRuns(d.runs); } });
 			}, []);
 			useEffect(() => { refresh(); }, [refresh]);
+			useEffect(() => { fetch('/api/automation/models').then((r) => r.json()).then((d) => { if (d.ok) setModels(d.models || []); }).catch(() => {}); }, []);
 			useEffect(() => {
 				const timer = setInterval(() => { if (runningId) refresh(); }, 5000);
 				return () => clearInterval(timer);
@@ -147,7 +157,8 @@ window.__ModuleLoader__.load({
 				setBusy(true);
 				const payload = {
 					name: form.name, prompt: form.prompt, enabled: form.enabled,
-					schedule: { type: form.type, minutes: Number(form.minutes) || 60, hour: Number(form.hour) || 9, minute: Number(form.minute) || 0, dow: Number(form.dow) || 1 }
+					schedule: { type: form.type, minutes: Number(form.minutes) || 60, hour: Number(form.hour) || 9, minute: Number(form.minute) || 0, dow: Number(form.dow) || 1 },
+					model: form.model, cwd: form.cwd
 				};
 				const url = editing === 'new' ? '/api/automation/create' : '/api/automation/update';
 				const body = editing === 'new' ? payload : Object.assign({ id: editing }, payload);
@@ -206,6 +217,17 @@ window.__ModuleLoader__.load({
 						react.createElement('input', { key: 'm', style: Object.assign({}, S.input, { width: 70 }), type: 'number', min: 0, max: 59, value: form.minute, onChange: set('minute') }),
 						react.createElement('span', { key: 'mu', style: S.note }, t('minute'))
 					] : null
+				]),
+				react.createElement('div', { key: 'm', style: S.row }, [
+					react.createElement('span', { key: 'l', style: S.label }, t('model')),
+					react.createElement('select', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), value: form.model, onChange: set('model') }, [
+						react.createElement('option', { key: 'd', value: '' }, t('modelDefault')),
+						models.map((m) => react.createElement('option', { key: m, value: m }, m))
+					])
+				]),
+				react.createElement('div', { key: 'w', style: S.row }, [
+					react.createElement('span', { key: 'l', style: S.label }, t('workspace')),
+					react.createElement('input', { key: 'i', style: Object.assign({}, S.input, { flex: 1 }), placeholder: t('workspacePlaceholder'), value: form.cwd, onChange: set('cwd') })
 				]),
 				react.createElement('div', { key: 'f', style: S.row }, [
 					react.createElement('label', { key: 'e', style: Object.assign({}, S.note, { display: 'flex', gap: 6, alignItems: 'center' }) }, [
@@ -384,10 +406,21 @@ window.__ModuleLoader__.load({
 				btn.onmouseenter = () => { btn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 				btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 				btn.onclick = openPanel;
-				btn.appendChild(makeIcon(ICONS.checklist, 15));
+				const iconEl = makeIcon(ICONS.checklist, 15);
+				btn.appendChild(iconEl);
 				const textSpan = document.createElement('span');
 				textSpan.textContent = label;
 				btn.appendChild(textSpan);
+				// 折叠适配：侧栏收窄时隐藏文字、图标居中放大
+				const applyCollapse = () => {
+					const collapsed = col.clientWidth < 90;
+					textSpan.style.display = collapsed ? 'none' : '';
+					btn.style.justifyContent = collapsed ? 'center' : 'flex-start';
+					btn.style.padding = collapsed ? '6px 0' : '6px 10px';
+					iconEl.style.width = iconEl.style.height = collapsed ? '20px' : '';
+				};
+				applyCollapse();
+				if (typeof ResizeObserver !== 'undefined') { try { new ResizeObserver(applyCollapse).observe(col); } catch { /* ignore */ } }
 				if (newBtn && newBtn.nextSibling) parent.insertBefore(btn, newBtn.nextSibling);
 				else parent.appendChild(btn);
 				});

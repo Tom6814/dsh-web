@@ -49,6 +49,11 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    model-extras: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras
   fi
+  # headless 运行器同样需要模型插件（自动化任务固定模型 DSH_AGENT_MODEL 依赖它）
+  if [ ! -d "$DSH_HOME/profiles/headless/node_modules/dsh-model-extras" ]; then
+    echo "    model-extras(headless): 首次安装…"
+    dsh plugin --profile headless add /opt/dsh-zeabur/plugins/model-extras
+  fi
   if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-mcp-skill" ]; then
     echo "    mcp-skill: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill

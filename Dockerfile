@@ -67,6 +67,8 @@ RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/floatboat-style || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/automation || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/image-gen || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/model-extras || true
+# headless（自动化任务运行器）同样挂载模型插件，任务级固定模型（DSH_AGENT_MODEL）才生效
+RUN dsh plugin --profile headless add /opt/dsh-zeabur/plugins/model-extras || true
 RUN dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill || true
 # dsh-routing-suite：运行时注入器（dev_* 工具全家桶）；预设由 start.sh 部署
 RUN dsh plugin --profile web add /opt/dsh-zeabur/vendor/dsh-routing-suite/injector || true

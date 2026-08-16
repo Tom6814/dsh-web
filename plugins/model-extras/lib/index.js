@@ -122,8 +122,10 @@ class ResponsesAdapter extends LlmAdapter {
 	async *stream(options) {
 		const connection = this.config.options();
 		const apiKey = await this.config.resolveApiKey(connection);
+		// 任务级固定模型：automation 插件运行子任务时通过 DSH_AGENT_MODEL 指定
+		const forced = process.env.DSH_AGENT_MODEL;
 		const body = {
-			model: options.model,
+			model: forced || options.model,
 			input: serializeInput(options.messages),
 			instructions: options.system || undefined,
 			tools: serializeTools(options.tools),

@@ -79,16 +79,31 @@ function nextRunAt(task, now = Date.now()) {
 function headlessPatchPath() {
 	return process.env.HEADLESS_PATCH || '/opt/dsh-zeabur/patches/headless.cordis.patch.yml';
 }
-function runHeadless(prompt, taskName) {
+/** 任务工作区：任务指定 cwd 则使用（自动创建）；否则在 $DSH_HOME/automation-workspaces/<id> 自动创建。 */
+function taskWorkspace(task) {
+	const home = process.env.DSH_HOME || join(homedir(), '.dsh');
+	if (task.cwd && typeof task.cwd === 'string' && task.cwd.trim()) {
+		try { mkdirSync(task.cwd.trim(), { recursive: true }); } catch { /* 创建失败则回退自动目录 */ }
+		if (existsSync(task.cwd.trim())) return task.cwd.trim();
+	}
+	const dir = join(home, 'automation-workspaces', String(task.id || 'task'));
+	try { mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+	return dir;
+}
+function runHeadless(prompt, task) {
+	const taskName = task.name || task.id;
 	return new Promise((resolve) => {
 		const args = ['--profile', 'headless'];
 		if (existsSync(headlessPatchPath())) args.push('--patch', headlessPatchPath());
 		args.push(prompt);
-		log(`run: 开始任务「${taskName}」 dsh ${args.join(' ')}`);
+		const env = { ...process.env };
+		if (task.model && task.model.trim()) env.DSH_AGENT_MODEL = task.model.trim();
+		const cwd = taskWorkspace(task);
+		log(`run: 开始任务「${taskName}」 cwd=${cwd}${task.model ? ' model=' + task.model : ''}`);
 		const child = execFile(
 			'dsh',
 			args,
-			{ cwd: process.cwd(), env: process.env, detached: true, maxBuffer: 32 * 1024 * 1024 },
+			{ cwd, env, detached: true, maxBuffer: 32 * 1024 * 1024 },
 			(error, stdout, stderr) => {
 				const out = `${stdout ?? ''}\n${stderr ?? ''}`.trim();
 				log(`run: 完成任务「${taskName}」 code=${error?.code ?? 0} 输出=${out.length}B`);
@@ -130,7 +145,7 @@ export function apply(ctx) {
 				continue;
 			}
 			running.add(task.id);
-			runHeadless(task.prompt, task.name)
+			runHeadless(task.prompt, task)
 				.then((result) => {
 					const s2 = loadStore();
 					const t = s2.tasks.find((x) => x.id === task.id);
@@ -159,6 +174,33 @@ export function apply(ctx) {
 		scheduleTick();
 		tickTimer = setInterval(scheduleTick, 60_000);
 		log(`调度器已启动（${store.tasks.filter((t) => t.enabled).length} 个启用任务）`);
+	});
+
+	ctx.webServer.register({
+		kind: 'exact',
+		path: '/api/automation/models',
+		handler: async (req, res) => {
+			try {
+				const home = process.env.DSH_HOME || join(homedir(), '.dsh');
+				const models = [];
+				const defaults = ['deepseek-chat', 'deepseek-reasoner'];
+				const mePath = join(home, 'model-extras.json');
+				if (existsSync(mePath)) {
+					let cfg = {};
+					try { cfg = JSON.parse(readFileSync(mePath, 'utf8')); } catch { /* ignore */ }
+					for (const m of cfg.models || []) if (m && m.id) models.push(m.id);
+					if (cfg.baseURL && cfg.apiKey) {
+						try {
+							const r = await fetch(cfg.baseURL.replace(/\/+$/, '') + '/models', { headers: { Authorization: 'Bearer ' + cfg.apiKey } });
+							if (r.ok) { const j = await r.json(); for (const m of j.data || []) if (m && m.id && !models.includes(m.id)) models.push(m.id); }
+						} catch { /* 动态获取失败则用配置/默认 */ }
+					}
+				}
+				sendJson(res, 200, { ok: true, models: [...new Set([...models, ...defaults])] });
+			} catch (e) {
+				sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
+			}
+		}
 	});
 
 	ctx.webServer.register({
@@ -222,6 +264,8 @@ export function apply(ctx) {
 				const task = store.tasks.find((t) => t.id === body.id);
 				if (!task) return sendJson(res, 404, { ok: false, error: '任务不存在' });
 				if (body.prompt !== void 0) task.prompt = String(body.prompt).trim();
+				if (body.model !== void 0) task.model = String(body.model).trim() ? String(body.model).trim() : undefined;
+				if (body.cwd !== void 0) task.cwd = String(body.cwd).trim() ? String(body.cwd).trim() : undefined;
 				if (body.name !== void 0) task.name = String(body.name).trim();
 				if (body.schedule) {
 					task.schedule = {
@@ -274,7 +318,7 @@ export function apply(ctx) {
 				// 不阻塞响应：后台执行，完成后写历史
 				sendJson(res, 200, { ok: true, note: '已触发执行（headless）' });
 				const now = Date.now();
-				const result = await runHeadless(task.prompt, task.name);
+				const result = await runHeadless(task.prompt, task);
 				const s2 = loadStore();
 				const t = s2.tasks.find((x) => x.id === task.id);
 				if (t) { t.lastRunAt = now; t.lastRunOk = result.ok; t.nextRunAt = nextRunAt(t, Date.now()); }

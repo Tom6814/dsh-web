@@ -407,10 +407,21 @@ window.__ModuleLoader__.load({
 					btn.onmouseenter = () => { btn.style.background = 'var(--dsw-alias-interactive-bg-hover)'; };
 					btn.onmouseleave = () => { btn.style.background = 'transparent'; };
 					btn.onclick = openPanel;
-					btn.appendChild(makeIcon(ICONS.plugin, 15));
+					const iconEl = makeIcon(ICONS.plugin, 15);
+					btn.appendChild(iconEl);
 					const textSpan = document.createElement('span');
 					textSpan.textContent = t('title');
 					btn.appendChild(textSpan);
+					// 折叠适配：侧栏收窄时隐藏文字、图标居中放大
+					const applyCollapse = () => {
+						const collapsed = col.clientWidth < 90;
+						textSpan.style.display = collapsed ? 'none' : '';
+						btn.style.justifyContent = collapsed ? 'center' : 'flex-start';
+						btn.style.padding = collapsed ? '6px 0' : '6px 10px';
+						iconEl.style.width = iconEl.style.height = collapsed ? '20px' : '';
+					};
+					applyCollapse();
+					if (typeof ResizeObserver !== 'undefined') { try { new ResizeObserver(applyCollapse).observe(col); } catch { /* ignore */ } }
 					if (anchor) {
 						// 插到自动化按钮后面
 						if (anchor.nextSibling) parent.insertBefore(btn, anchor.nextSibling);
