@@ -67,11 +67,21 @@ function locateSession(sessionId) {
 function sessionHeader(sessionId) {
 	const { p } = locateSession(sessionId);
 	const raw = zstdDecompressSync(readFileSync(p));
+	let header = {};
+	let firstUser = '';
 	for (const l of raw.toString('utf8').split('\n')) {
 		if (!l.trim()) continue;
-		try { const j = JSON.parse(l); if (j && j.type === 'session') return j; } catch { /* ignore */ }
+		try {
+			const j = JSON.parse(l);
+			if (j && j.type === 'session' && !header.id) { header = j; continue; }
+			// 无标题时用首条 user 消息做匹配（dsh 侧栏标题常取自首条消息）
+			if (!firstUser && (j.type === 'user/message' || j.type === 'message' && j.message?.role === 'user')) {
+				const c = j.type === 'user/message' ? j.data : j.message?.content;
+				firstUser = extractText(c).trim().slice(0, 60);
+			}
+		} catch { /* ignore */ }
 	}
-	return {};
+	return { ...header, firstUser };
 }
 
 function gh(url, token, opts = {}) {
@@ -262,16 +272,42 @@ export function apply(ctx) {
 	} });
 
 	// 会话所在工作区 + 该工作区已选择的仓库（同工作区所有会话复用）
+	// 支持 ?sessionId= 或 ?title=（dsh 无 URL 路由，client 从选中会话行取标题查）
 	ctx.webServer.register({ kind: 'exact', path: '/api/github-sync/session', handler: async (req, res) => {
 		try {
 			const u = new URL(req.url, 'http://local');
-			const sessionId = u.searchParams.get('sessionId') || '';
-			if (!sessionId) { sendJson(res, 400, { ok: false, error: '缺少 sessionId' }); return; }
+			let sessionId = u.searchParams.get('sessionId') || '';
+			const title = u.searchParams.get('title') || '';
+			if (!sessionId && title) {
+				// 按标题找最近匹配的会话
+				const root = join(home(), 'sessions');
+				if (existsSync(root)) {
+					let best = null;
+					for (const dir of readdirSync(root)) {
+						const sdir = join(root, dir);
+						for (const sid of readdirSync(sdir)) {
+							if (!existsSync(join(sdir, sid, 'session.jsonl.zstd'))) continue;
+							try {
+								const h = sessionHeader(sid);
+								const ht = h.title || '';
+								const fu = h.firstUser || '';
+								const matched = ht === title || (ht && ht.includes(title)) || (title && ht && title.includes(ht))
+									|| (fu && (fu.includes(title) || title.includes(fu)));
+								if (matched) {
+									if (!best || Number(h.createdAt || 0) > Number(best.createdAt || 0)) best = { id: sid, ...h };
+								}
+							} catch { /* ignore */ }
+						}
+					}
+					if (best) sessionId = best.id;
+				}
+			}
+			if (!sessionId) { sendJson(res, 404, { ok: false, error: '未找到会话' }); return; }
 			const h = sessionHeader(sessionId);
 			const cwd = h.cwd || '';
 			const cfg = loadCfg();
 			const wsConfig = cwd && cfg.workspaces[cwd] ? cfg.workspaces[cwd] : null;
-			sendJson(res, 200, { ok: true, cwd, wsConfig });
+			sendJson(res, 200, { ok: true, sessionId, cwd, wsConfig });
 		} catch (e) {
 			sendJson(res, 500, { ok: false, error: String(e?.message ?? e) });
 		}
