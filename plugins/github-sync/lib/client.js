@@ -141,6 +141,13 @@ window.__ModuleLoader__.load({
 						b.prepend(icon('git', 13));
 						row.appendChild(b);
 						b.onclick = () => { if (cfg.oauthAvailable) window.location.href = '/api/github-sync/oauth/start'; };
+						// 诊断：显示实际使用的回调地址，便于与 GitHub OAuth App 注册值核对
+						if (cfg.oauthAvailable) {
+							const cb = mk('');
+							cb.textContent = '回调地址：' + cfg.oauthCallback;
+							cb.style.cssText = 'font-size:11px;opacity:.65;flex-basis:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+							row.appendChild(cb);
+						}
 						const ml = linkEl(t_.manual);
 						row.appendChild(ml);
 						const panel = mk('display:none;flex:1;min-width:230px;gap:6px;align-items:center;flex-wrap:wrap;');

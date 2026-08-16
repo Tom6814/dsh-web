@@ -239,7 +239,7 @@ export function apply(ctx) {
 			const token = tj.access_token;
 			if (!token) {
 				res.writeHead(502, { 'Content-Type': 'text/html; charset=utf-8' });
-				res.end('<h3>授权失败：' + (tj.error_description || tj.error || 'no token') + '</h3>');
+				res.end('<h3>授权失败：' + (tj.error_description || tj.error || 'no token') + '</h3><p style="font-size:13px;color:#666">本次请求使用的回调地址：<code>' + oauthCallbackUrl(req) + '</code><br>请在 GitHub OAuth App 设置里确认已注册该地址（多个访问域名需逐个添加）。</p>');
 				return;
 			}
 			cfg.token = token;
