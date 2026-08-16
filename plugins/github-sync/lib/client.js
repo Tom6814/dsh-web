@@ -1,143 +1,173 @@
 // dsh-github-sync client（dsh loader 格式：window.__ModuleLoader__.load）
-// 说明：DOM 注入逻辑为自执行 IIFE（见 factory 内）；inject/apply 为空占位，
-// 修改本文件后保持 loader 包装结构即可（id 必须为 dsh-github-sync）。
+// 会话底部一行：选择/复用「工作区级」的 GitHub 仓库+分支，同步会话到仓库。
+// - 会话 id 提取：URL → React fiber（currentId）→ 选中行标题兜底
+// - 样式对齐 dsh 原生 token；无 emoji，使用内联 SVG 线条图标
 window.__ModuleLoader__.load({
 	id: 'dsh-github-sync',
 	factory: (require) => {
 		var module = { exports: {} };
-		// dsh-github-sync — client half
-		// 每个会话底部一行：选择/复用「工作区级」的 GitHub 仓库+分支，同步会话到仓库。
-		// 仓库可选；同一工作区下所有会话复用同一仓库选择。
-		// DOM 注入（不依赖 React 内部），MutationObserver 等待渲染并跟随会话切换。
 		(function () {
 			if (window.__dsh_github_sync_started) return;
 			window.__dsh_github_sync_started = true;
-		
-			let host = null;
+
 			let timer = null;
 			let lastKey = '';
-		
+
+			// DeepSeek 原生线条图标（1.5px 圆角描边、currentColor 跟随主题）
+			const ICONS = {
+				git: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="4.5" r="1.6"/><circle cx="11" cy="4.5" r="1.6"/><circle cx="5" cy="11.5" r="1.6"/><path d="M5 6.1v3.8M5 11.5h4.5a1.5 1.5 0 0 0 1.5-1.5v-4"/><path d="M11 6.1v1.2"/></svg>',
+				cloud: '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5a3 3 0 0 1-.4-5.98 4.2 4.2 0 0 1 8.2 1.2 2.4 2.4 0 0 1-.3 4.78z"/></svg>',
+				arrowUp: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12.5v-9"/><path d="M4.5 6.5 8 3l3.5 3.5"/></svg>',
+				check: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></svg>',
+				gear: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.6v1.6M8 11.8v1.6M13.4 8h-1.6M4.2 8H2.6M11.8 4.2l-1.1 1.1M5.3 10.7l-1.1 1.1M11.8 11.8l-1.1-1.1M5.3 5.3 4.2 4.2"/></svg>',
+				chevron: '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>',
+			};
+			const icon = (name, size) => {
+				const s = document.createElement('span');
+				s.style.cssText = 'display:inline-flex;align-items:center;flex:none;color:var(--dsw-alias-label-secondary);width:' + (size || 13) + 'px;height:' + (size || 13) + 'px;';
+				s.innerHTML = (ICONS[name] || '').replace(/width="[0-9.]+"/, 'width="' + (size || 13) + '"').replace(/height="[0-9.]+"/, 'height="' + (size || 13) + '"');
+				return s;
+			};
+
 			const TEXT = {
 				cn: {
-					setup: '🔐 用 GitHub 登录（OAuth 绑定）',
-					manual: '或手动填 GHP（高级）',
-					optional: '☁️ 同步到 GitHub（可选）',
-					repo: '仓库', branch: '分支', save: '保存', cancel: '取消',
+					setup: '用 GitHub 登录（OAuth 绑定）',
+					manual: '手动填 GHP（高级）',
+					optional: '同步到 GitHub（可选）',
+					repo: '仓库', branch: '分支', save: '保存',
 					sync: '同步', change: '更换', stop: '取消同步', syncing: '同步中…',
 					synced: '已同步', failed: '失败', ghpHint: 'GHP（留空则用环境变量）',
-					placeholder: 'owner/name', noRepos: '（加载失败或无仓库）',
-					bound: '已绑定', logout: '解绑', oauthMissing: '未配置 GITHUB_CLIENT_ID，无法 OAuth',
+					bound: '已绑定', logout: '解绑', unrecognized: '同步到 GitHub（当前会话暂未识别）',
 				},
 				en: {
-					setup: '🔐 Sign in with GitHub (OAuth)',
-					manual: 'or manual GHP (advanced)',
-					optional: '☁️ Sync to GitHub (optional)',
-					repo: 'Repo', branch: 'Branch', save: 'Save', cancel: 'Cancel',
+					setup: 'Sign in with GitHub (OAuth)',
+					manual: 'manual GHP (advanced)',
+					optional: 'Sync to GitHub (optional)',
+					repo: 'Repo', branch: 'Branch', save: 'Save',
 					sync: 'Sync', change: 'Change', stop: 'Disable', syncing: 'Syncing…',
 					synced: 'Synced', failed: 'Failed', ghpHint: 'GHP (empty = env)',
-					placeholder: 'owner/name', noRepos: '(no repos or failed)',
-					bound: 'Bound as', logout: 'Sign out', oauthMissing: 'GITHUB_CLIENT_ID not configured',
+					bound: 'Bound as', logout: 'Sign out', unrecognized: 'Sync to GitHub (session not yet recognized)',
 				},
 			};
 			function t() { return document.documentElement.lang === 'en' ? TEXT.en : TEXT.cn; }
-		
+
+			// 会话 id：URL → React fiber（currentId）→ 选中行标题（兜底）
 			function extractSessionId() {
-		const u = window.location.href;
-		const pats = [
-			/session\/([a-zA-Z0-9-]{8,})/,
-			/[?&](?:id|session)=([a-zA-Z0-9-]{8,})/,
-			/#\/?[^/]*\/([a-zA-Z0-9-]{8,})/,
-		];
-		for (const p of pats) { const m = u.match(p); if (m) return m[1]; }
-		return null;
-	}
-	// dsh 无 URL 路由：从侧栏「选中会话行」提取标题（回传给 host 按标题解析会话）
-	function extractSessionTitle() {
-		try {
-			const rows = [...document.querySelectorAll('*')].filter((e) => {
-				const c = (e.className || '').toString();
-				return c.includes('sessionRow') && c.includes('select');
-			});
-			for (const row of rows) {
-				const t = row.querySelector('[class*=title],span');
-				const tx = (t && t.textContent || row.textContent || '').trim();
-				if (tx && tx.length < 60) return tx;
+				const u = window.location.href;
+				const pats = [/session\/([a-zA-Z0-9-]{8,})/, /[?&](?:id|session)=([a-zA-Z0-9-]{8,})/, /#\/?[^/]*\/([a-zA-Z0-9-]{8,})/];
+				for (const p of pats) { const m = u.match(p); if (m) return m[1]; }
+				try {
+					const rows = [...document.querySelectorAll('*')].filter((e) => (e.className || '').toString().includes('sessionRow'));
+					for (const row of rows) {
+						const fk = Object.keys(row).find((k) => k.startsWith('__reactFiber$'));
+						if (!fk) continue;
+						let cur = row[fk];
+						for (let i = 0; i < 80 && cur; i++) {
+							const mp = cur.memoizedProps || {};
+							if (typeof mp.currentId === 'string' && mp.currentId.startsWith('session-')) return mp.currentId;
+							cur = cur.return;
+						}
+					}
+				} catch { /* ignore */ }
+				try {
+					const sel = [...document.querySelectorAll('*')].filter((e) => {
+						const c = (e.className || '').toString();
+						return c.includes('sessionRow') && c.includes('select');
+					});
+					for (const row of sel) {
+						const tt = row.querySelector('[class*=title],span');
+						const tx = (tt && tt.textContent || row.textContent || '').trim();
+						if (tx && tx.length < 60) return 'title:' + tx;
+					}
+				} catch { /* ignore */ }
+				return null;
 			}
-		} catch { /* ignore */ }
-		return null;
-	}
-		
+
 			function mk(styles) { const d = document.createElement('div'); d.style.cssText = styles; return d; }
-			function selectEl(styles) {
+			function selectEl() {
 				const s = document.createElement('select');
-				s.style.cssText = 'height:26px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;padding:0 6px;outline:none;max-width:220px;';
-				if (styles) s.style.cssText = styles;
+				s.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;padding:0 6px;outline:none;max-width:200px;';
 				return s;
 			}
-			function btnEl(label, primary) {
+			function btnEl(label, primary, ghost) {
 				const b = document.createElement('button');
 				b.type = 'button';
+				b.style.cssText = 'height:24px;border-radius:7px;border:1px solid ' + (primary ? 'transparent' : 'var(--dsw-alias-border-l2)') + ';background:' + (primary ? 'var(--dsw-alias-state-business-primary)' : ghost ? 'transparent' : 'var(--dsw-alias-bg-layer-1)') + ';color:' + (primary ? '#fff' : 'var(--dsw-alias-label-secondary)') + ';font-size:12px;font-family:inherit;cursor:pointer;padding:0 9px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;';
 				b.textContent = label;
-				b.style.cssText = 'height:26px;border-radius:8px;border:1px solid ' + (primary ? 'transparent' : 'var(--dsw-alias-border-l2)') + ';background:' + (primary ? 'var(--dsw-alias-state-business-primary)' : 'transparent') + ';color:' + (primary ? '#fff' : 'var(--dsw-alias-label-secondary)') + ';font-size:12px;font-family:inherit;cursor:pointer;padding:0 10px;white-space:nowrap;';
 				return b;
 			}
-		
+			function linkEl(label) {
+				const a = document.createElement('button');
+				a.type = 'button';
+				a.textContent = label;
+				a.style.cssText = 'background:none;border:none;padding:0;color:var(--dsw-alias-label-tertiary);font-size:11px;cursor:pointer;text-decoration:underline;font-family:inherit;';
+				return a;
+			}
+
 			async function api(url, body) {
 				try {
 					const r = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
 					return await r.json();
 				} catch (e) { return { ok: false, error: String(e?.message || e) }; }
 			}
-		
-			function buildRow(holder) {
-		const sessionId = extractSessionId();
-		const title = sessionId ? null : extractSessionTitle();
-		if (!sessionId && !title) return;
-		holder.textContent = '';
-		const t_ = t();
-		const row = mk('display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:5px 12px;border-top:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-size:12px;color:var(--dsw-alias-label-tertiary);box-sizing:border-box;');
-		row.setAttribute('data-dsh-ghsync', '1');
-		holder.appendChild(row);
 
-		api('/api/github-sync/session' + (sessionId ? '?sessionId=' + encodeURIComponent(sessionId) : '?title=' + encodeURIComponent(title || ''))).then(async (info) => {
-			if (!info.ok) {
-				const p = mk('');
-				p.textContent = info.error === '未找到会话' ? '☁️ 同步到 GitHub（当前会话暂未识别）' : t_.failed + ': ' + (info.error || '');
-				row.appendChild(p);
-				return;
-			}
-			const realSid = info.sessionId || sessionId;
-			const cwd = info.cwd || '';
+			function buildRow(holder, anchor) {
+				const raw = extractSessionId();
+				if (!raw) { rowRemoved(holder); return; }
+				const isTitle = String(raw).startsWith('title:');
+				const sessionId = isTitle ? null : raw;
+				const title = isTitle ? String(raw).slice(6) : null;
+				holder.textContent = '';
+				const t_ = t();
+				// 贴对话框：仅上圆角，与 composer 上沿衔接
+				const row = mk('display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 12px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-bottom:none;border-radius:10px 10px 0 0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:12px;');
+				row.setAttribute('data-dsh-ghsync', '1');
+				holder.appendChild(row);
+
+				const q = sessionId ? '?sessionId=' + encodeURIComponent(sessionId) : '?title=' + encodeURIComponent(title || '');
+				api('/api/github-sync/session' + q).then(async (info) => {
+					if (!info.ok) {
+						const p = mk('display:inline-flex;align-items:center;gap:5px;'); p.appendChild(icon('cloud', 13)); p.appendChild(document.createTextNode(info.error === '未找到会话' ? t_.unrecognized : t_.failed + ': ' + (info.error || '')));
+						row.appendChild(p);
+						return;
+					}
+					const realSid = info.sessionId || sessionId;
+					const cwd = info.cwd || '';
 					const cfg = await api('/api/github-sync/config');
 					const conf = cfg.ok && cfg.configured;
-		
+
 					if (!conf) {
-						// 未绑定：OAuth 登录主按钮（优先），手动 GHP 折叠（高级）
-						const b = btnEl(cfg.oauthAvailable ? t_.setup : t_.oauthMissing, true);
+						const b = btnEl(t_.setup, true);
+						b.prepend(icon('git', 13));
 						row.appendChild(b);
 						b.onclick = () => { if (cfg.oauthAvailable) window.location.href = '/api/github-sync/oauth/start'; };
-						const manualLink = mk(''); manualLink.textContent = t_.manual; manualLink.style.cssText = 'cursor:pointer;text-decoration:underline;opacity:.8;font-size:11px;';
-						row.appendChild(manualLink);
-						const panel = mk('display:none;flex:1;min-width:240px;gap:6px;align-items:center;flex-wrap:wrap;');
+						const ml = linkEl(t_.manual);
+						row.appendChild(ml);
+						const panel = mk('display:none;flex:1;min-width:230px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
-						const ghp = document.createElement('input'); ghp.placeholder = 'GHP'; ghp.type = 'password'; ghp.style.cssText = 'height:26px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;padding:0 8px;flex:1;min-width:120px;outline:none;';
+						const ghp = document.createElement('input'); ghp.placeholder = 'GHP'; ghp.type = 'password';
+						ghp.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;padding:0 8px;flex:1;min-width:110px;outline:none;';
 						const hint = mk(''); hint.textContent = t_.ghpHint; hint.style.cssText = 'font-size:11px;opacity:.7;flex-basis:100%;';
 						const ok = btnEl(t_.save, true);
 						ok.onclick = async () => {
 							const r = await api('/api/github-sync/save', { ghp: ghp.value.trim() });
 							if (r.ok) { row.textContent = ''; buildRow(holder); } else { hint.textContent = r.error || t_.failed; }
 						};
-						manualLink.onclick = () => { panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; };
+						ml.onclick = () => { panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; };
 						panel.append(ghp, hint, ok);
 						return;
 					}
-		
-					// 已绑定：显示账号 + 仓库选择
-					const who = mk('display:inline-flex;align-items:center;gap:6px;');
-					who.innerHTML = '🔗 <strong style="color:var(--dsw-alias-label-primary)">' + (cfg.user ? '@' + cfg.user : t_.bound) + '</strong>' + (cfg.email ? ' <span style="opacity:.6">' + cfg.email + '</span>' : '');
-					const logoutBtn = btnEl(t_.logout);
-					logoutBtn.onclick = async () => { const r = await api('/api/github-sync/logout'); if (r.ok) { row.textContent = ''; buildRow(holder); } };
-					row.appendChild(who); row.appendChild(logoutBtn);
+
+					// 已绑定：账号 + 仓库选择
+					const who = mk('display:inline-flex;align-items:center;gap:5px;');
+					who.appendChild(icon('git', 13));
+					const nm = document.createElement('strong'); nm.textContent = cfg.user ? '@' + cfg.user : t_.bound; nm.style.cssText = 'color:var(--dsw-alias-label-primary);font-weight:600;';
+					who.appendChild(nm);
+					if (cfg.email) { const em = mk(''); em.textContent = cfg.email; em.style.cssText = 'opacity:.6;'; who.appendChild(em); }
+					const lg = btnEl(t_.logout, false, true);
+					lg.onclick = async () => { const r = await api('/api/github-sync/logout'); if (r.ok) { row.textContent = ''; buildRow(holder); } };
+					row.appendChild(who); row.appendChild(lg);
+
 					const ws = info.wsConfig || null;
 					const repoSel = selectEl();
 					const branchSel = selectEl();
@@ -146,7 +176,7 @@ window.__ModuleLoader__.load({
 						branchSel.appendChild(new Option(t_.branch + '…', ''));
 						if (!repo) return;
 						api('/api/github-sync/branches?repo=' + encodeURIComponent(repo)).then((d) => {
-							if (!d.ok || !d.branches) { branchSel.appendChild(new Option(t_.noRepos, '')); return; }
+							if (!d.ok || !d.branches) { branchSel.appendChild(new Option(t_.repo + '…', '')); return; }
 							for (const b of d.branches) { const o = new Option(b, b); if (ws && ws.branch === b) o.selected = true; branchSel.appendChild(o); }
 						});
 					};
@@ -156,15 +186,16 @@ window.__ModuleLoader__.load({
 						const r = await api('/api/github-sync/ws-save', { cwd, repo, branch });
 						if (r.ok) { row.textContent = ''; buildRow(holder); } else { status(r.error || t_.failed); }
 					};
-		
+					const status = mk(''); status.style.cssText = 'font-size:12px;display:inline-flex;align-items:center;gap:5px;';
+
 					if (!ws) {
-						// 可选：未选择 → 「同步到 GitHub（可选）」→ 展开选择
-						const b = btnEl(t_.optional);
+						const b = btnEl(t_.optional, false, true);
+						b.prepend(icon('cloud', 13));
 						row.appendChild(b);
-						const panel = mk('display:none;flex:1;min-width:260px;gap:6px;align-items:center;flex-wrap:wrap;');
+						const panel = mk('display:none;flex:1;min-width:250px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
 						repoSel.appendChild(new Option(t_.repo + '…', ''));
-						api('/api/github-sync/repos').then((d) => { if (d.ok && d.repos) for (const r of d.repos) repoSel.appendChild(new Option(r, r)); else repoSel.appendChild(new Option(t_.noRepos, '')); });
+						api('/api/github-sync/repos').then((d) => { if (d.ok && d.repos) for (const r of d.repos) repoSel.appendChild(new Option(r, r)); });
 						repoSel.onchange = () => loadBranches(repoSel.value);
 						const ok = btnEl(t_.save, true);
 						ok.onclick = saveWs;
@@ -172,27 +203,30 @@ window.__ModuleLoader__.load({
 						panel.append(repoSel, branchSel, ok);
 						return;
 					}
-		
-					// 已有工作区仓库选择：显示 + 同步按钮
-					const tag = mk('display:inline-flex;align-items:center;gap:6px;');
-					tag.innerHTML = '📦 <strong style="color:var(--dsw-alias-label-primary)">' + ws.repo + '</strong> <span style="opacity:.7">#' + ws.branch + '</span>';
+
+					const tag = mk('display:inline-flex;align-items:center;gap:5px;min-width:0;');
+					tag.appendChild(icon('repo', 13));
+					const rn = document.createElement('strong'); rn.textContent = ws.repo; rn.style.cssText = 'color:var(--dsw-alias-label-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;';
+					const br = mk(''); br.textContent = '#' + ws.branch; br.style.cssText = 'opacity:.65;';
+					tag.append(rn, br);
 					const syncBtn = btnEl(t_.sync, true);
-					const status = mk(''); status.style.cssText = 'font-size:12px;';
-					const changeBtn = btnEl(t_.change);
-					const stopBtn = btnEl(t_.stop);
-					row.append(tag, syncBtn, changeBtn, stopBtn, status);
-		
+					syncBtn.prepend(icon('arrowUp', 12));
+					const chg = btnEl(t_.change, false, true);
+					const stp = btnEl(t_.stop, false, true);
+					row.append(tag, syncBtn, chg, stp, status);
+
 					syncBtn.onclick = async () => {
 						syncBtn.disabled = true; syncBtn.textContent = t_.syncing;
 						const r = await api('/api/github-sync/sync', { sessionId: realSid, repo: ws.repo, branch: ws.branch });
-						syncBtn.disabled = false; syncBtn.textContent = t_.sync;
-						if (r.ok) { status.style.color = 'var(--dsw-alias-state-success-primary)'; status.textContent = '✓ ' + t_.synced + ' → ' + (r.url || r.file); }
-						else { status.style.color = 'var(--dsw-alias-state-error-primary)'; status.textContent = '✗ ' + t_.failed + ': ' + (r.error || ''); }
+						syncBtn.disabled = false; syncBtn.textContent = t_.sync; syncBtn.prepend(icon('arrowUp', 12));
+						status.textContent = '';
+						if (r.ok) { status.style.color = 'var(--dsw-alias-state-success-primary)'; status.appendChild(icon('check', 12)); status.appendChild(document.createTextNode(t_.synced + ' → ' + (r.url || r.file))); }
+						else { status.style.color = 'var(--dsw-alias-state-error-primary)'; status.appendChild(document.createTextNode(t_.failed + ': ' + (r.error || ''))); }
 					};
-					changeBtn.onclick = () => {
+					chg.onclick = () => {
 						row.textContent = '';
-						row.appendChild(btnEl(t_.repo + '…', false));
-						const panel = mk('display:flex;flex:1;min-width:260px;gap:6px;align-items:center;flex-wrap:wrap;');
+						row.appendChild(btnEl(t_.repo + '…', false, true));
+						const panel = mk('display:flex;flex:1;min-width:250px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
 						repoSel.appendChild(new Option(ws.repo, ws.repo, false, true));
 						api('/api/github-sync/repos').then((d) => { if (d.ok && d.repos) for (const r of d.repos) if (r !== ws.repo) repoSel.appendChild(new Option(r, r)); });
@@ -201,44 +235,44 @@ window.__ModuleLoader__.load({
 						const ok = btnEl(t_.save, true); ok.onclick = saveWs;
 						panel.append(repoSel, branchSel, ok);
 					};
-					stopBtn.onclick = async () => {
+					stp.onclick = async () => {
 						const r = await api('/api/github-sync/ws-save', { cwd });
 						if (r.ok) { row.textContent = ''; buildRow(holder); }
 					};
 				});
 			}
-		
+			function rowRemoved(holder) { holder.textContent = ''; }
+
 			function findComposer() {
-		// 特征：会话页底部的编辑器容器（contenteditable / textarea 附近）
-		const ed = document.querySelector('[contenteditable="true"]');
-		const ta = document.querySelector('textarea');
-		const any = ed || ta;
-		if (!any) return null;
-				// 向上找底部容器（含编辑器的会话区）
+				const ed = document.querySelector('[contenteditable="true"]');
+				const ta = document.querySelector('textarea');
+				const any = ed || ta;
+				if (!any) return null;
+				// 找到 composer 输入框容器（紧邻的祖先），行插在其上方
 				let el = any.parentElement;
-				for (let i = 0; el && i < 6; i++) {
+				for (let i = 0; el && i < 5; i++) {
 					const s = getComputedStyle(el);
-					if (el.clientWidth > 400 && (el.scrollHeight - el.clientHeight > 40 || s.position === 'fixed' || s.position === 'sticky')) return el;
+					if (el.clientWidth > 320 && (s.position === 'fixed' || s.position === 'sticky' || el.querySelector('button'))) return el;
 					el = el.parentElement;
 				}
 				return any.parentElement;
 			}
-		
+
 			function ensureRow() {
 				const container = findComposer();
 				if (!container) return false;
-				// 已注入且会话未变 → 跳过
-				const id = extractSessionId() || '';
-				if (id && id === lastKey && container.querySelector('[data-dsh-ghsync]')) return true;
-				lastKey = id;
+				const key = extractSessionId() || '';
+				if (key && key === lastKey && container.querySelector('[data-dsh-ghsync]')) return true;
+				lastKey = key;
 				const old = container.querySelector('[data-dsh-ghsync]');
 				if (old) old.remove();
-				const holder = mk(''); holder.style.cssText = 'flex:none;';
-				container.appendChild(holder);
-				buildRow(holder);
+				// 行插到 composer 容器正上方（紧贴，无间隙）
+				const holder = mk('flex:none;');
+				container.parentElement.insertBefore(holder, container);
+				buildRow(holder, container);
 				return true;
 			}
-		
+
 			const mo = new MutationObserver(() => {
 				if (timer) return;
 				timer = setTimeout(() => { timer = null; try { ensureRow(); } catch { /* ignore */ } }, 600);
@@ -252,7 +286,6 @@ window.__ModuleLoader__.load({
 			}
 			start();
 		})();
-		
 		module.exports = { inject: [], apply: () => {} };
 		return module.exports;
 	}
