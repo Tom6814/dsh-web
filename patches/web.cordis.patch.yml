@@ -1,24 +1,14 @@
-# Zeabur 适配层：固定「网页内目录浏览」交互（browse）+ 插件市场
+# Zeabur 适配层：插件挂载
 #
-# ── 1. 工作区适配 ─────────────────────────────────────────────────────────
-# 原理（来自 dsh-web-app bundle 注释 "Mount -browse directly in an overlay"）：
-#   auto 选择器只在「本地回环绑定 + 图形会话」时才用 native（系统文件管理器），
-#   云端容器应固定 browse。做法：
-#   1) 禁用 auto 行（它会在启动时动态二选一）
-#   2) 插入 browse 后端（网页内列目录、新建目录）+ 对应的浏览器端 surface，
-#      占住 ui-workspace 的目录流插槽
-- id: directory-picker
-  disabled: true
+# ── 1. 插件挂载 ───────────────────────────────────────────────────────────
+# github-sync：会话同步到 GitHub（OAuth 绑定 + 按工作区选择仓库/分支）。
+# 目录选择：保留官方 directory-picker-auto（云端自动走 browse 交互）——
+# 不要在这里禁用 auto / 手动插入 browse，否则会破坏 client 加载顺序，
+# 出现 "require is not defined" / "Failed to fetch"。
 - insert:
     - id: github-sync
       name: dsh-github-sync
       config: {}
-
-- insert:
-    - id: directory-picker-browse
-      name: '@deepseek-ai/dsh-host-directory-picker-browse'
-    - id: ui-directory-picker-browse
-      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
 
 # ── 2. 插件市场 ───────────────────────────────────────────────────────────
 # 在「设置 → 插件」中增加「插件市场」tab：
