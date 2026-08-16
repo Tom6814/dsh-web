@@ -260,15 +260,16 @@ window.__ModuleLoader__.load({
 
 			function ensureRow() {
 				const container = findComposer();
-				if (!container) return false;
+				if (!container || !container.parentElement) return false;
+				const parent = container.parentElement;
 				const key = extractSessionId() || '';
-				if (key && key === lastKey && container.querySelector('[data-dsh-ghsync]')) return true;
+				// 行插在 composer 兄弟位置（紧贴上方），检查也必须查 parent 内
+				if (key && key === lastKey && parent.querySelector('[data-dsh-ghsync]')) return true;
 				lastKey = key;
-				const old = container.querySelector('[data-dsh-ghsync]');
-				if (old) old.remove();
-				// 行插到 composer 容器正上方（紧贴，无间隙）
+				// 防残留/防重复：清掉所有已注入行再插新的
+				document.querySelectorAll('[data-dsh-ghsync]').forEach((el) => el.remove());
 				const holder = mk('flex:none;');
-				container.parentElement.insertBefore(holder, container);
+				parent.insertBefore(holder, container);
 				buildRow(holder, container);
 				return true;
 			}
