@@ -51,6 +51,7 @@ ENV DSH_HOME=/data/dsh
 # 建到易丢的临时目录；这里把默认目录改为 DSH_HOME 的父目录（/data）。
 COPY scripts/ /opt/dsh-zeabur/scripts/
 RUN node /opt/dsh-zeabur/scripts/patch-picker.js
+RUN node /opt/dsh-zeabur/scripts/patch-require-shim.js
 
 # dsh 的「调用目录」即默认 workspace root，这里固定为 /workspace
 WORKDIR /workspace
