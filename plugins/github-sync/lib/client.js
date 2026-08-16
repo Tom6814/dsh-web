@@ -86,7 +86,7 @@ window.__ModuleLoader__.load({
 			function mk(styles) { const d = document.createElement('div'); d.style.cssText = styles; return d; }
 			function selectEl() {
 				const s = document.createElement('select');
-				s.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;padding:0 6px;outline:none;max-width:200px;';
+				s.style.cssText = 'height:24px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;padding:0 6px;outline:none;max-width:150px;min-width:0;flex:0 1 auto;';
 				return s;
 			}
 			function btnEl(label, primary, ghost) {
@@ -120,7 +120,7 @@ window.__ModuleLoader__.load({
 				holder.textContent = '';
 				const t_ = t();
 				// 贴对话框：仅上圆角，与 composer 上沿衔接
-				const row = mk('display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 12px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-bottom:none;border-radius:10px 10px 0 0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:12px;');
+				const row = mk('display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 12px;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-bottom:none;border-radius:10px 10px 0 0;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);font-size:12px;max-width:100%;overflow:hidden;');
 				row.setAttribute('data-dsh-ghsync', '1');
 				holder.appendChild(row);
 
@@ -141,13 +141,6 @@ window.__ModuleLoader__.load({
 						b.prepend(icon('git', 13));
 						row.appendChild(b);
 						b.onclick = () => { if (cfg.oauthAvailable) window.location.href = '/api/github-sync/oauth/start'; };
-						// 诊断：显示实际使用的回调地址，便于与 GitHub OAuth App 注册值核对
-						if (cfg.oauthAvailable) {
-							const cb = mk('');
-							cb.textContent = '回调地址：' + cfg.oauthCallback;
-							cb.style.cssText = 'font-size:11px;opacity:.65;flex-basis:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-							row.appendChild(cb);
-						}
 						const ml = linkEl(t_.manual);
 						row.appendChild(ml);
 						const panel = mk('display:none;flex:1;min-width:230px;gap:6px;align-items:center;flex-wrap:wrap;');
@@ -178,32 +171,54 @@ window.__ModuleLoader__.load({
 					const ws = info.wsConfig || null;
 					const repoSel = selectEl();
 					const branchSel = selectEl();
-					const loadBranches = (repo) => {
+					const loadBranches = (repo, defBranch) => {
 						branchSel.textContent = '';
 						branchSel.appendChild(new Option(t_.branch + '…', ''));
 						if (!repo) return;
 						api('/api/github-sync/branches?repo=' + encodeURIComponent(repo)).then((d) => {
 							if (!d.ok || !d.branches) { branchSel.appendChild(new Option(t_.repo + '…', '')); return; }
-							for (const b of d.branches) { const o = new Option(b, b); if (ws && ws.branch === b) o.selected = true; branchSel.appendChild(o); }
+							for (const b of d.branches) {
+								const o = new Option(b, b);
+								if ((ws && ws.branch === b) || (!ws && defBranch && b === defBranch)) o.selected = true;
+								branchSel.appendChild(o);
+							}
+						});
+					};
+					const fillRepos = (into, exclude) => {
+						api('/api/github-sync/repos').then((d) => {
+							if (!d.ok || !d.repos) { into.appendChild(new Option(t_.repo + '…', '')); return; }
+							for (const r of d.repos) {
+								if (exclude && r.name === exclude) continue;
+								const o = new Option(r.name, r.name);
+								if (r.default) o.dataset.default = r.default;
+								into.appendChild(o);
+							}
 						});
 					};
 					const saveWs = async () => {
-						const repo = repoSel.value, branch = branchSel.value;
-						if (!repo || !branch) return;
+						const repo = repoSel.value;
+						let branch = branchSel.value;
+						if (!repo) return;
+						// 未选分支时用仓库默认分支（或下拉第一项）
+						if (!branch) {
+							const o = repoSel.selectedOptions[0];
+							branch = (o && o.dataset.default) || (branchSel.options[1] && branchSel.options[1].value) || '';
+						}
+						if (!branch) { status(t_.failed + ': ' + t_.branch); return; }
 						const r = await api('/api/github-sync/ws-save', { cwd, repo, branch });
 						if (r.ok) { row.textContent = ''; buildRow(holder); } else { status(r.error || t_.failed); }
 					};
-					const status = mk(''); status.style.cssText = 'font-size:12px;display:inline-flex;align-items:center;gap:5px;';
+					const status = mk(''); status.style.cssText = 'font-size:12px;display:inline-flex;align-items:center;gap:5px;min-width:0;';
 
 					if (!ws) {
 						const b = btnEl(t_.optional, false, true);
 						b.prepend(icon('cloud', 13));
 						row.appendChild(b);
-						const panel = mk('display:none;flex:1;min-width:250px;gap:6px;align-items:center;flex-wrap:wrap;');
+						const panel = mk('display:none;flex:1;min-width:200px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
 						repoSel.appendChild(new Option(t_.repo + '…', ''));
-						api('/api/github-sync/repos').then((d) => { if (d.ok && d.repos) for (const r of d.repos) repoSel.appendChild(new Option(r, r)); });
-						repoSel.onchange = () => loadBranches(repoSel.value);
+						fillRepos(repoSel);
+						repoSel.onchange = () => { const o = repoSel.selectedOptions[0]; loadBranches(repoSel.value, o && o.dataset.default); };
 						const ok = btnEl(t_.save, true);
 						ok.onclick = saveWs;
 						b.onclick = () => { panel.style.display = panel.style.display === 'none' ? 'flex' : 'none'; };
@@ -211,10 +226,10 @@ window.__ModuleLoader__.load({
 						return;
 					}
 
-					const tag = mk('display:inline-flex;align-items:center;gap:5px;min-width:0;');
+					const tag = mk('display:inline-flex;align-items:center;gap:5px;min-width:0;flex:0 1 auto;');
 					tag.appendChild(icon('repo', 13));
-					const rn = document.createElement('strong'); rn.textContent = ws.repo; rn.style.cssText = 'color:var(--dsw-alias-label-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px;';
-					const br = mk(''); br.textContent = '#' + ws.branch; br.style.cssText = 'opacity:.65;';
+					const rn = document.createElement('strong'); rn.textContent = ws.repo; rn.style.cssText = 'color:var(--dsw-alias-label-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;flex:none;';
+					const br = mk(''); br.textContent = '#' + ws.branch; br.style.cssText = 'opacity:.65;flex:none;';
 					tag.append(rn, br);
 					const syncBtn = btnEl(t_.sync, true);
 					syncBtn.prepend(icon('arrowUp', 12));
@@ -233,12 +248,12 @@ window.__ModuleLoader__.load({
 					chg.onclick = () => {
 						row.textContent = '';
 						row.appendChild(btnEl(t_.repo + '…', false, true));
-						const panel = mk('display:flex;flex:1;min-width:250px;gap:6px;align-items:center;flex-wrap:wrap;');
+						const panel = mk('display:flex;flex:1;min-width:200px;gap:6px;align-items:center;flex-wrap:wrap;');
 						row.appendChild(panel);
 						repoSel.appendChild(new Option(ws.repo, ws.repo, false, true));
-						api('/api/github-sync/repos').then((d) => { if (d.ok && d.repos) for (const r of d.repos) if (r !== ws.repo) repoSel.appendChild(new Option(r, r)); });
+						fillRepos(repoSel, ws.repo);
 						loadBranches(ws.repo);
-						repoSel.onchange = () => loadBranches(repoSel.value);
+						repoSel.onchange = () => { const o = repoSel.selectedOptions[0]; loadBranches(repoSel.value, o && o.dataset.default); };
 						const ok = btnEl(t_.save, true); ok.onclick = saveWs;
 						panel.append(repoSel, branchSel, ok);
 					};

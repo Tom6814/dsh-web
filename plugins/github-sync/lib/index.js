@@ -346,7 +346,7 @@ export function apply(ctx) {
 			const r = await gh('/user/repos?per_page=100&sort=updated', tok);
 			if (!r.ok) { const e = await r.text(); sendJson(res, 200, { ok: false, error: 'GitHub (' + r.status + '): ' + e.slice(0, 200), repos: [] }); return; }
 			const j = await r.json();
-			sendJson(res, 200, { ok: true, repos: (j || []).map((x) => x.full_name) });
+			sendJson(res, 200, { ok: true, repos: (j || []).map((x) => ({ name: x.full_name, default: x.default_branch })) });
 		} catch (e) {
 			sendJson(res, 200, { ok: false, error: String(e?.message ?? e), repos: [] });
 		}
