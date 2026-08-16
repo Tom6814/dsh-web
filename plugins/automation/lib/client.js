@@ -5,6 +5,8 @@
 window.__ModuleLoader__.load({
 	id: 'dsh-automation',
 	factory: (require) => {
+		// 兜底：dsh 的 require 仅 factory 参数；暴露到 window，防个别 client 在裸上下文执行时崩
+		if (typeof window !== "undefined" && typeof window.require === "undefined") { try { window.require = require; } catch { /* ignore */ } }
 		var module = { exports: {} };
 		const react = require('react');
 		const ReactDOM = require('react-dom');
