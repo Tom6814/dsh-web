@@ -5,8 +5,37 @@
 window.__ModuleLoader__.load({
 	id: 'dsh-github-sync',
 	factory: (require) => {
-		// 兜底：dsh 的 require 仅 factory 参数；暴露到 window，防个别 client 在裸上下文执行时崩
-		if (typeof window !== "undefined" && typeof window.require === "undefined") { try { window.require = require; } catch { /* ignore */ } }
+		// 兜底：dsh 的 require 仅 factory 参数；浏览器里懒加载的组件（如目录选择器）
+		// 可能在裸上下文 require('fs'/'path'/'electron'/'os')，浏览器没有这些模块。
+		// 提供最小 shim（宿主检测通过）+ dsh loader 回退（react 等真实模块）。
+		// 无条件设置：本插件在 patch 末尾加载，保证最终兜底为增强版。
+		try {
+			const loaderReq = require;
+			const pathShim = {
+				join: (...a) => a.filter(Boolean).join('/').replace(/\/{2,}/g, '/'),
+				dirname: (p) => { const s = String(p || ''); const i = s.lastIndexOf('/'); return i > 0 ? s.slice(0, i) : '.'; },
+				basename: (p) => String(p || '').split('/').pop(),
+				normalize: (p) => String(p || ''),
+				resolve: (...a) => a.filter(Boolean).join('/'),
+				relative: () => '', isAbsolute: (p) => String(p || '').startsWith('/'), extname: (p) => { const m = String(p || '').match(/\.[^./\\]+$/); return m ? m[0] : ''; }, sep: '/',
+			};
+			const fsShim = {
+				existsSync: () => false,
+				statSync: () => { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; },
+				readdirSync: () => [], mkdirSync: () => {},
+				readFileSync: () => { const e = new Error('ENOENT'); e.code = 'ENOENT'; throw e; },
+				writeFileSync: () => {}, promises: {},
+			};
+			window.require = (id) => {
+				const key = String(id);
+				if (key === 'fs' || key === 'node:fs') return fsShim;
+				if (key === 'path' || key === 'node:path') return pathShim;
+				if (key === 'electron') return {};
+				if (key === 'os') return { homedir: () => '/', tmpdir: () => '/tmp', platform: 'browser', EOL: '\n' };
+				if (key === 'child_process') return {};
+				try { return loaderReq(id); } catch { return {}; }
+			};
+		} catch { /* ignore */ }
 		var module = { exports: {} };
 		(function () {
 			if (window.__dsh_github_sync_started) return;
