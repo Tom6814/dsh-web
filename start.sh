@@ -22,6 +22,28 @@ set -e
 
 mkdir -p "$DSH_HOME"
 
+# ── 会话/工作区自愈 ────────────────────────────────────────────────────
+# dsh 启动时按 canonical cwd 校验会话归属（realpath 必须可解析且为目录）。
+# 容器重建/重新部署后，已注册工作区的目录可能不存在（如 /workspace 下的
+# 子目录、或跨环境路径），校验失败会把会话归入「未命名/未分类」。
+# 这里提前 mkdir 所有已注册工作区路径，让 realpath 可解析、归属恢复。
+node - "$DSH_HOME" <<'NODE' 2>/dev/null || true
+const fs = require('fs');
+const path = require('path');
+const home = process.argv[2];
+try {
+  const wf = path.join(home, 'storages', 'workspace.json');
+  if (!fs.existsSync(wf)) process.exit(0);
+  const w = JSON.parse(fs.readFileSync(wf, 'utf8'));
+  const ws = (w.tables || {}).workspaces || {};
+  for (const rec of Object.values(ws)) {
+    if (rec && typeof rec.path === 'string' && rec.path) {
+      try { fs.mkdirSync(rec.path, { recursive: true }); } catch { /* ignore */ }
+    }
+  }
+} catch { /* 自愈失败不影响启动 */ }
+NODE
+
 echo "==> DeepSeek Harness 启动"
 echo "    profile : $DSH_PROFILE"
 echo "    DSH_HOME: $DSH_HOME"
