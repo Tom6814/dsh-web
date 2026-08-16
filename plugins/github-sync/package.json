@@ -1,0 +1,19 @@
+{
+  "name": "dsh-github-sync",
+  "version": "0.1.0",
+  "description": "DSH 会话同步到 GitHub 仓库：每个会话底部一行，按工作区选择仓库/分支（可选，同一工作区下所有会话复用），一键把会话导出推送为 Markdown 到 GitHub。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "license": "MIT"
+}

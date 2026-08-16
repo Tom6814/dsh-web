@@ -76,6 +76,10 @@ if [ "$DSH_PROFILE" = "web" ]; then
     echo "    model-extras(headless): 首次安装…"
     dsh plugin --profile headless add /opt/dsh-zeabur/plugins/model-extras
   fi
+  if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-github-sync" ]; then
+    echo "    github-sync: 首次安装…"
+    dsh plugin --profile web add /opt/dsh-zeabur/plugins/github-sync
+  fi
   if [ ! -d "$DSH_HOME/profiles/web/node_modules/dsh-mcp-skill" ]; then
     echo "    mcp-skill: 首次安装…"
     dsh plugin --profile web add /opt/dsh-zeabur/plugins/mcp-skill

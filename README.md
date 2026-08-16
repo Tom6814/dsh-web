@@ -92,10 +92,20 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
      command/args/env 与 url/headers 均支持）即批量导入并热生效；「以 Cursor 格式显示」
      一键把当前服务器以 Cursor `mcpServers` 结构展示/导出；
    - **Skills**：管理 `$DSH_HOME/skills/<name>/SKILL.md`（Claude 风格技能根）——**上传
-     SKILL.md 文件或 zip 压缩包**（自动解压定位 SKILL.md 并保留附属文件）、手动新建/删除/
-     启停；**「AI 帮我创建」**（一句话描述 → LLM 生成标准 SKILL.md 并安装）、**「AI 帮我安装」**
-     （粘贴任意教程/规则文本 → AI 整理成标准技能安装）；保存即出现在输入框「/」技能菜单
-     （dsh 技能文件监听，实时生效）。
+      SKILL.md 文件或 zip 压缩包**（自动解压定位 SKILL.md 并保留附属文件）、手动新建/删除/
+      启停；**「AI 帮我创建」**（一句话描述 → LLM 生成标准 SKILL.md 并安装）、**「AI 帮我安装」**
+      （粘贴任意教程/规则文本 → AI 整理成标准技能安装）；保存即出现在输入框「/」技能菜单
+      （dsh 技能文件监听，实时生效）。
+    - **GitHub 同步（会话底部）**：每个会话底部一行「GitHub 同步」——**可选**，同一
+      工作区下所有会话复用同一仓库+分支。绑定方式二选一：
+   - **OAuth App（推荐）**：配置 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
+     （GitHub Settings → Developer settings → OAuth Apps 创建；回调地址填
+     `<PUBLIC_URL>/api/github-sync/oauth/callback`，scope 需 `repo user:email`）。
+     会话底部点「用 GitHub 登录」→ 浏览器授权 → **自动获取账号与邮箱** → 在账号下
+     选择任意仓库（所有仓库）+ 分支 → 点「同步」把会话导出为 Markdown 提交到该仓库
+     （`dsh-sessions/<会话id>.md`，重复同步覆盖更新）。OAuth token 持久化，可「解绑」。
+   - **手动令牌**：环境变量 `GHP` / `GH_USER` / `GH_EMAIL`，或在行内折叠的高级项填 GHP。
+  - **侧栏折叠**：「自动化」「技能与 MCP」按钮随侧栏收窄自动隐藏文字、图标居中放大。
 - **浏览器自动化（MCP）**：镜像内置 Patchright（playwright 的 stealth 分支，驱动级反检测，
   能过基础机器人验证）的 MCP server。Agent 工具集中出现 `mcp__browser__browse / interact /
   extract / close`，可查看、填写、点击网页。web 与 headless（自动化任务）profile 都可用。
