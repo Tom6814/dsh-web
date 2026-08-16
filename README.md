@@ -99,8 +99,10 @@ docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com -t dsh-web 
     - **GitHub 同步（会话底部）**：每个会话底部一行「GitHub 同步」——**可选**，同一
       工作区下所有会话复用同一仓库+分支。绑定方式二选一：
    - **OAuth App（推荐）**：配置 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
-     （GitHub Settings → Developer settings → OAuth Apps 创建；回调地址填
-     `<PUBLIC_URL>/api/github-sync/oauth/callback`，scope 需 `repo user:email`）。
+      （GitHub Settings → Developer settings → OAuth Apps 创建）。**回调地址必须填
+      你实际访问的域名**：`https://<你的域名>/api/github-sync/oauth/callback`
+      （多个访问域名需逐个添加回调；也可用 `PUBLIC_URL` 显式固定对外地址）。
+      回调地址由服务端按当前请求域名动态生成，与注册一致才能授权成功。
      会话底部点「用 GitHub 登录」→ 浏览器授权 → **自动获取账号与邮箱** → 在账号下
      选择任意仓库（所有仓库）+ 分支 → 点「同步」把会话导出为 Markdown 提交到该仓库
      （`dsh-sessions/<会话id>.md`，重复同步覆盖更新）。OAuth token 持久化，可「解绑」。

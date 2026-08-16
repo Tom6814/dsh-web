@@ -46,10 +46,21 @@ function saveCfg(cfg) {
 	}, null, 2));
 }
 
-// 对外可访问 origin（OAuth 回调用）：PUBLIC_URL 优先，否则请求 host，最后本地兜底
+// 对外可访问 origin（OAuth 回调用）：PUBLIC_URL 优先，否则按请求实际域名（反代透传）
 let publicOrigin = String(process.env.PUBLIC_URL || process.env.DSH_PUBLIC_URL || '').replace(/\/+$/, '');
 if (!publicOrigin) publicOrigin = 'http://127.0.0.1:' + (process.env.PORT || '3081');
-function oauthCallbackUrl() { return publicOrigin + '/api/github-sync/oauth/callback'; }
+function requestOrigin(req) {
+	if (req && req.headers) {
+		const proto = req.headers['x-forwarded-proto'] || (req.socket && req.socket.encrypted ? 'https' : 'http');
+		const host = req.headers['x-forwarded-host'] || req.headers.host;
+		if (host) return proto + '://' + host;
+	}
+	return publicOrigin;
+}
+// 回调地址必须与 GitHub OAuth App 注册的完全一致；用用户实际访问的域名生成
+function oauthCallbackUrl(req) {
+	return requestOrigin(req).replace(/\/+$/, '') + '/api/github-sync/oauth/callback';
+}
 function resolveToken(cfg) { return cfg.token || process.env.GHP || ''; }
 
 // 会话文件按 <encoded-cwd>/<sessionId>/session.jsonl.zstd 存放；编码是路径逐字符转义，
@@ -186,7 +197,7 @@ export function apply(ctx) {
 
 	ctx.webServer.register({ kind: 'exact', path: '/api/github-sync/config', handler: async (req, res) => {
 		const cfg = loadCfg();
-		sendJson(res, 200, { ok: true, configured: !!resolveToken(cfg), user: cfg.user, email: cfg.email, oauthAvailable: !!cfg.clientId, oauthCallback: oauthCallbackUrl() });
+		sendJson(res, 200, { ok: true, configured: !!resolveToken(cfg), user: cfg.user, email: cfg.email, oauthAvailable: !!cfg.clientId, oauthCallback: oauthCallbackUrl(req) });
 	} });
 
 	// ── GitHub OAuth App 授权（绑定账号；GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET）──
@@ -202,7 +213,7 @@ export function apply(ctx) {
 		oauthStates.set(state, Date.now());
 		const url = 'https://github.com/login/oauth/authorize?' + new URLSearchParams({
 			client_id: cfg.clientId,
-			redirect_uri: oauthCallbackUrl(),
+			redirect_uri: oauthCallbackUrl(req),
 			scope: 'repo user:email',
 			state,
 		}).toString();
@@ -222,7 +233,7 @@ export function apply(ctx) {
 			const tr = await fetch('https://github.com/login/oauth/access_token', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-				body: JSON.stringify({ client_id: cfg.clientId, client_secret: cfg.clientSecret, code, redirect_uri: oauthCallbackUrl() }),
+				body: JSON.stringify({ client_id: cfg.clientId, client_secret: cfg.clientSecret, code, redirect_uri: oauthCallbackUrl(req) }),
 			});
 			const tj = await tr.json();
 			const token = tj.access_token;
