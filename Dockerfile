@@ -53,6 +53,10 @@ ENV DSH_HOME=/data/dsh
 COPY scripts/ /opt/dsh-zeabur/scripts/
 RUN node /opt/dsh-zeabur/scripts/patch-picker.js
 RUN node /opt/dsh-zeabur/scripts/patch-picker-auto.js
+# terminal-bash 快结算 path A 需要 promptTextSeen（prompt 文本匹配 "dsh> "），
+# 但 tool-bash-persistent 把 PS1 覆盖为 31 字符暗号 → promptTextSeen 永远 false →
+# 每条命令兜底等 3.5 秒。去掉 promptTextSeen 门控，仅靠 OSC 133;D 标记快结算。
+RUN node /opt/dsh-zeabur/scripts/patch-terminal-bash-prompt.js
 
 # 云端目录选择固定为服务端浏览（browse）；本地开发可不设（auto 原生）
 ENV DSH_DIRECTORY_PICKER=browse
