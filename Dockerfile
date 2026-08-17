@@ -48,10 +48,10 @@ ENV DSH_HOME=/data/dsh
 
 # 文件浏览器（browse directory picker）默认打开位置对齐持久化卷：
 # 其初始路径取 homedir()（容器里是 /root，非持久），会引导用户把工作区
-# 建到易丢的临时目录；这里把默认目录改为 DSH_HOME 的父目录（/data）。
+# 建到易丢的临时目录；patch-picker.js 把默认目录改为 DSH_HOME 的父目录（/data）。
+# patch-picker-auto.js 让 directory-picker 后端支持 DSH_DIRECTORY_PICKER 覆盖。
 COPY scripts/ /opt/dsh-zeabur/scripts/
 RUN node /opt/dsh-zeabur/scripts/patch-picker.js
-RUN node /opt/dsh-zeabur/scripts/patch-require-shim.js
 RUN node /opt/dsh-zeabur/scripts/patch-picker-auto.js
 
 # 云端目录选择固定为服务端浏览（browse）；本地开发可不设（auto 原生）

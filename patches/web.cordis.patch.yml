@@ -2,9 +2,9 @@
 #
 # ── 1. 插件挂载 ───────────────────────────────────────────────────────────
 # github-sync：会话同步到 GitHub（OAuth 绑定 + 按工作区选择仓库/分支）。
-# 目录选择：保留官方 directory-picker-auto（云端自动走 browse 交互）——
-# 不要在这里禁用 auto / 手动插入 browse，否则会破坏 client 加载顺序，
-# 出现 "require is not defined" / "Failed to fetch"。
+# 目录选择：保留官方 directory-picker-auto（云端经 DSH_DIRECTORY_PICKER=browse
+# 固定为服务端目录浏览）。不要在这里禁用 auto / 手动插入 browse，官方 auto
+# 会成对挂载 backend + client surface，手动拆开会破坏 client 加载顺序。
 - insert:
     - id: github-sync
       name: dsh-github-sync
